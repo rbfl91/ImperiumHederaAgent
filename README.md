@@ -47,7 +47,3 @@ A Solidity smart contract for creating, issuing, and trading tokenized annuities
 ## Dependencies
 
 - [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) (`IERC20`, `SafeERC20`)
-
-## License
-
-This project is licensed under the MIT License.
