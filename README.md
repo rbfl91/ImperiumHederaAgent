@@ -1,6 +1,6 @@
 # AnnuityToken Smart Contract
 
-A Solidity smart contract for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin. This contract allows an issuer to offer a fixed-income annuity to an investor, pay periodic coupons, and enable secondary market transfers of the annuity.
+A Solidity smart contract Truffle project for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin. This contract allows an issuer to offer a fixed-income annuity to an investor, pay periodic coupons, and enable secondary market transfers of the annuity.
 
 ## Features
 
