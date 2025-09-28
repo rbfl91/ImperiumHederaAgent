@@ -19,6 +19,7 @@ contract AnnuityToken {
     uint256[] public couponValues;
     IERC20 public stablecoin;
     bool public issued;
+    bool public expired;
 
     // track paid coupons to avoid double-payments
     mapping(uint256 => bool) public couponPaid;
@@ -27,6 +28,8 @@ contract AnnuityToken {
     event Issued(address indexed investor, uint256 faceValue);
     event CouponPaid(uint256 indexed index, uint256 value, uint256 timestamp, address to);
     event AnnuityTransferred(address indexed from, address indexed to, uint256 price);
+    event Redeemed(uint256 faceValue, uint256 timestamp, address to);
+    event Expired();
 
     constructor(
         address _issuer,
@@ -47,11 +50,16 @@ contract AnnuityToken {
         couponDates = _couponDates;
         couponValues = _couponValues;
         stablecoin = IERC20(_stablecoin);
+    } 
+
+    modifier notExpired() {
+        require(!expired, "Annuity expired");
+        _;
     }
 
     //Investor accepts the annuity and pays face value to the issuer.
     //Investor must approve this contract for faceValue before calling.
-    function acceptAndIssue(address _investor) external {
+    function acceptAndIssue(address _investor) external notExpired {
         require(!issued, "Already issued");
         investor = _investor;
         // Pull face value from investor to issuer
@@ -66,7 +74,7 @@ contract AnnuityToken {
 
     //Pay a coupon by index. Pays to the current owner.
     //Issuer must approve this contract to move couponValues[index] prior to calling.
-    function payCoupon(uint256 index) external {
+    function payCoupon(uint256 index) external notExpired {
         require(msg.sender == issuer, "Only issuer can pay coupons");
         require(index < couponValues.length, "Invalid coupon index");
         require(!couponPaid[index], "Coupon already paid");
@@ -80,7 +88,7 @@ contract AnnuityToken {
 
     //Transfer the annuity to a new owner for a price in stablecoin.
     //Workflow: buyer approves this contract for `price`. Then the seller (currentOwner) calls this function.
-    function transferAnnuity(address newOwner, uint256 price) external {
+    function transferAnnuity(address newOwner, uint256 price) external notExpired {
         require(issued, "Annuity not issued");
         require(msg.sender == currentOwner, "Only current owner can initiate transfer");
         require(newOwner != address(0), "Invalid new owner");
@@ -93,6 +101,17 @@ contract AnnuityToken {
         currentOwner = newOwner;
 
         emit AnnuityTransferred(oldOwner, newOwner, price);
+    } 
+
+    //Redeem face value at maturity
+    function redeemMaturity() external notExpired {
+        require(msg.sender == issuer, "Only issuer can redeem");
+        require(block.timestamp >= maturityDate, "Not yet matured");
+
+        stablecoin.safeTransferFrom(issuer, currentOwner, faceValue);
+        expired = true;
+        emit Redeemed(faceValue, block.timestamp, currentOwner);
+        emit Expired();
     }
 
     //Returns number of coupons

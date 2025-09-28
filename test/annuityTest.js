@@ -1,4 +1,5 @@
-const { expectEvent, BN } = require("@openzeppelin/test-helpers");
+const { expectEvent, BN, expectRevert } = require("@openzeppelin/test-helpers");
+
 const MockStablecoin = artifacts.require("MockStablecoin");
 const AnnuityToken = artifacts.require("AnnuityToken");
 
@@ -96,5 +97,66 @@ contract("Annuity Lifecycle - secondary trading & coupons", (accounts) => {
     const secondaryBalAfterCoupon = await stablecoin.balanceOf(secondary);
     const expectedSecondaryBal = new BN(web3.utils.toWei("1050", "ether")); // 2000 - 1050 + 100
     assert(secondaryBalAfterCoupon.eq(expectedSecondaryBal), "Secondary should have received second coupon");
+
+    // Tests steps for maturity redemption:
+    // Prefund issuer to redeem face value
+    await stablecoin.transfer(issuer, faceValue, { from: issuer });
+
+    // Try redeem before maturity should fail
+    await expectRevert.unspecified(
+    annuity.redeemMaturity({ from: issuer })
+  );
+
+    // Fast-forward time to after maturity
+    await new Promise((resolve, reject) => {
+      web3.currentProvider.send(
+        {
+          jsonrpc: "2.0",
+          method: "evm_increaseTime",
+          params: [366 * 24 * 60 * 60], // seconds
+          id: new Date().getTime(),
+        },
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
+
+    await new Promise((resolve, reject) => {
+      web3.currentProvider.send(
+        {
+          jsonrpc: "2.0",
+          method: "evm_mine",
+          params: [],
+          id: new Date().getTime(),
+        },
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
+
+    // Approve contract to pull faceValue
+    await stablecoin.approve(annuity.address, faceValue, { from: issuer });
+
+    // Redeem maturity
+    const txRedeem = await annuity.redeemMaturity({ from: issuer });
+    expectEvent(txRedeem, "Redeemed", { faceValue, to: secondary });
+
+    // Check secondary received face value
+    const secondaryBalAfterMaturity = await stablecoin.balanceOf(secondary);
+    const expectedSecondaryMaturity = new BN(web3.utils.toWei("2050", "ether")); // 1050 + 100 coupon + 1000 face
+    assert(secondaryBalAfterMaturity.eq(expectedSecondaryMaturity), "Secondary should have received face value at maturity");
+
+    // Annuity should be marked expired
+    const expired = await annuity.expired();
+    assert.equal(expired, true, "Annuity should be expired");
+
+    // Further operations should revert
+    await expectRevert(
+      annuity.payCoupon(0, { from: issuer }),
+      "Annuity expired"
+    );
+    await expectRevert(
+      annuity.transferAnnuity(accounts[3], web3.utils.toWei("100", "ether"), { from: secondary }),
+      "Annuity expired"
+    );
+
   });
 });
