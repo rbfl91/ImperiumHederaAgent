@@ -7,7 +7,7 @@ contract("Annuity Lifecycle - secondary trading & coupons", (accounts) => {
   const [issuer, investor, secondary] = accounts;
 
   it("issue -> coupon to investor -> transfer to secondary -> coupon to secondary", async () => {
-    // Deploy mock stablecoin (wCBDC simulation)
+    // Deploy mock stablecoin (Catena simulation)
     const stablecoin = await MockStablecoin.new({ from: issuer });
 
     // Prefund both investor and secondary buyer with stablecoins
