@@ -1,4 +1,4 @@
-# AnnuityToken Smart Contract
+# Imperium Markets AnnuityToken Smart Contract
 
 A Solidity smart contract Truffle project for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin. This contract allows an issuer to offer a fixed-income annuity to an investor, pay periodic coupons, and enable secondary market transfers of the annuity.
 
@@ -7,7 +7,8 @@ A Solidity smart contract Truffle project for creating, issuing, and trading tok
 - **Issue Annuities:** Investors can accept and fund annuities with a stablecoin.
 - **Coupon Payments:** Issuer can pay periodic coupon payments to the current owner.
 - **Transferable Ownership:** Annuities can be sold or transferred to new owners for a stablecoin price.
-- **Secure Payments:** Uses OpenZeppelin's `SafeERC20` to securely transfer funds.
+- **Secure Payments:** Uses OpenZeppelin's `SafeERC20` to securely transfer funds via a mock stablecoin.
+- **Burn Annuities:** Issuers are able to burn those annuity tokens that have already expired.
 
 ## Contract Details
 
@@ -27,6 +28,8 @@ A Solidity smart contract Truffle project for creating, issuing, and trading tok
 - `Issued`: Emitted when annuity is issued.
 - `CouponPaid`: Emitted when a coupon is paid.
 - `AnnuityTransferred`: Emitted when annuity is transferred to a new owner.
+- `AnnuityRedeemed`: Emitted when annuity reaches it's maturity date.
+- `Expired`: Emitted when annuity is burned.
 
 ## Functions
 
@@ -35,7 +38,8 @@ A Solidity smart contract Truffle project for creating, issuing, and trading tok
 - `transferAnnuity(address newOwner, uint256 price)`: Current owner transfers annuity to a new owner for a stablecoin price. Buyer must approve the contract for the price.
 - `getCouponCount()`: Returns the total number of coupons.
 - `getCouponValue(uint256 index)`: Returns the value of a specific coupon.
-- `getCouponDate(uint256 index)`: Returns the date of a specific coupon.
+- `getCouponDate(uint256 index)`: Returns the date of a specific coupon. 
+- `redeemMaturity()`: Redeems the annuity.
 
 ## Usage Example
 
