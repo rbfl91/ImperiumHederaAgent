@@ -69,7 +69,7 @@ contract AnnuityToken is ReentrancyGuard {
         // Pull face value from investor to issuer (requires investor approval)
         stablecoin.safeTransferFrom(_investor, issuer, faceValue);
 
-        // set state after successful transfer (atomic because of EVM revert semantics)
+        // set state after successful transfer (atomic settlement)
         investor = _investor;
         currentOwner = _investor;
         issued = true;
