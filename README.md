@@ -4,12 +4,12 @@ A Solidity smart contract Truffle project for creating, issuing, and trading tok
 
 ## Features
 
-- **Issue Annuities: Investors can accept and fund annuities using a stablecoin.
-  **Coupon Payments: Issuer can pay periodic coupon payments to the current owner.
-  **Transferable Ownership: Annuities can be sold or transferred to new owners for a stablecoin price.
-  **Secure Payments: Uses OpenZeppelin's SafeERC20 to securely transfer funds via a mock stablecoin.
-  **Reentrancy Protection: All critical functions (acceptAndIssue, payCoupon, transferAnnuity, redeemMaturity) are protected with OpenZeppelin’s ReentrancyGuard.
-  **Burn / Expire Annuities: Issuers can mark annuities as expired after redemption or maturity.
+-  **Issue Annuities: Investors can accept and fund annuities using a stablecoin.
+-  **Coupon Payments: Issuer can pay periodic coupon payments to the current owner.
+-  **Transferable Ownership: Annuities can be sold or transferred to new owners for a stablecoin price.
+-  **Secure Payments: Uses OpenZeppelin's SafeERC20 to securely transfer funds via a mock stablecoin.
+-  **Reentrancy Protection: All critical functions (acceptAndIssue, payCoupon, transferAnnuity, redeemMaturity) are protected with OpenZeppelin’s ReentrancyGuard.
+-  **Burn / Expire Annuities: Issuers can mark annuities as expired after redemption or maturity.
 
 ## Contract Details
 
