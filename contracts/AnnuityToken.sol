@@ -122,18 +122,15 @@ contract AnnuityToken is ReentrancyGuard {
         emit Expired();
     }
 
-    // Helper to view number of coupons
     function getCouponCount() external view returns (uint256) {
         return couponValues.length;
     }
 
-    // Helper to view coupon value
     function getCouponValue(uint256 index) external view returns (uint256) {
         require(index < couponValues.length, "Invalid index");
         return couponValues[index];
     }
 
-    // Helper to view coupon date
     function getCouponDate(uint256 index) external view returns (uint256) {
         require(index < couponDates.length, "Invalid index");
         return couponDates[index];
