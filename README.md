@@ -1,14 +1,15 @@
 # Imperium Markets AnnuityToken Smart Contract
 
-A Solidity smart contract Truffle project for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin. This contract allows an issuer to offer a fixed-income annuity to an investor, pay periodic coupons, and enable secondary market transfers of the annuity.
+A Solidity smart contract Truffle project for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin. This contract was developed for Imperium Markets / Catena Annuity Use Case, allowing an issuer to offer fixed-income annuities to investors, pay periodic coupons, and enable secure secondary market transfers.
 
 ## Features
 
-- **Issue Annuities:** Investors can accept and fund annuities with a stablecoin.
-- **Coupon Payments:** Issuer can pay periodic coupon payments to the current owner.
-- **Transferable Ownership:** Annuities can be sold or transferred to new owners for a stablecoin price.
-- **Secure Payments:** Uses OpenZeppelin's `SafeERC20` to securely transfer funds via a mock stablecoin.
-- **Burn Annuities:** Issuers are able to burn those annuity tokens that have already expired.
+- **Issue Annuities: Investors can accept and fund annuities using a stablecoin.
+  **Coupon Payments: Issuer can pay periodic coupon payments to the current owner.
+  **Transferable Ownership: Annuities can be sold or transferred to new owners for a stablecoin price.
+  **Secure Payments: Uses OpenZeppelin's SafeERC20 to securely transfer funds via a mock stablecoin.
+  **Reentrancy Protection: All critical functions (acceptAndIssue, payCoupon, transferAnnuity, redeemMaturity) are protected with OpenZeppelin’s ReentrancyGuard.
+  **Burn / Expire Annuities: Issuers can mark annuities as expired after redemption or maturity.
 
 ## Contract Details
 
