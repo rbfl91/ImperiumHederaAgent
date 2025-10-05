@@ -135,4 +135,9 @@ contract AnnuityToken is ReentrancyGuard {
         require(index < couponDates.length, "Invalid index");
         return couponDates[index];
     }
+
+    function isCouponPaid(uint256 index) external view returns (bool) {
+        require(index < couponValues.length, "Invalid index");
+        return couponPaid[index];
+    }
 }

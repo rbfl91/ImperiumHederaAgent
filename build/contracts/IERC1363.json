@@ -390,7 +390,7 @@
         81
       ],
       "IERC165": [
-        1351
+        1420
       ],
       "IERC20": [
         819
@@ -452,7 +452,7 @@
               "name": "IERC165",
               "nodeType": "Identifier",
               "overloadedDeclarations": [],
-              "referencedDeclaration": 1351,
+              "referencedDeclaration": 1420,
               "src": "178:7:0",
               "typeDescriptions": {}
             },
@@ -487,7 +487,7 @@
                 "598:7:0"
               ],
               "nodeType": "IdentifierPath",
-              "referencedDeclaration": 1351,
+              "referencedDeclaration": 1420,
               "src": "598:7:0"
             },
             "id": 10,
@@ -508,7 +508,7 @@
         "id": 81,
         "linearizedBaseContracts": [
           81,
-          1351,
+          1420,
           819
         ],
         "name": "IERC1363",
@@ -1372,7 +1372,7 @@
   },
   "networks": {},
   "schemaVersion": "3.4.16",
-  "updatedAt": "2025-09-28T23:16:45.402Z",
+  "updatedAt": "2025-10-05T22:20:09.398Z",
   "devdoc": {
     "details": "Interface of the ERC-1363 standard as defined in the https://eips.ethereum.org/EIPS/eip-1363[ERC-1363]. Defines an extension interface for ERC-20 tokens that supports executing code on a recipient contract after `transfer` or `transferFrom`, or code on a spender contract after `approve`, in a single transaction.",
     "events": {
