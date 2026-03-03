@@ -268,6 +268,42 @@ Minimum production controls:
 - CI/CD multi-network gates.
 - Runbooks and operational readiness.
 
+### Milestone 2.5 — AI Agent via HOL Registry Broker + OpenClaw (2–4 weeks)
+
+Deploy an AI agent registered on the Hashgraph Online (HOL) Universal Registry
+that orchestrates Imperium Markets annuity contract operations on Hedera, and
+distribute it as a skill on ClawHub for AI assistant consumption.
+
+**Agent Runtime & Registration (Registry Broker / HCS-10):**
+- Register an Imperium Markets AI agent on the Universal Registry using HCS-10 (OpenConvAI).
+- Implement agent skills: deal submission, status query, deal execution.
+- Integrate `@hashgraphonline/standards-agent-kit` with LangChain for agentic orchestration.
+- Wire agent actions to the existing `HederaEvmAdapter` for contract calls.
+- Enable agent-to-agent discovery and communication via Registry Broker API.
+- Add agent identity profile (HCS-11) with Imperium Markets metadata.
+- Test agent interactions on Hedera testnet.
+
+**Skill Distribution (OpenClaw / ClawHub):**
+- Author a `SKILL.md` file describing Imperium Markets agent capabilities.
+- Publish to ClawHub so AI coding assistants (OpenClaw, Claude, Cursor, Codex) can discover and invoke the agent.
+- Set up `hashgraph-online/skill-publish` GitHub Action for automated dual publishing (HOL Registry + ClawHub) on release.
+- Validate skill consumption from at least one AI assistant (e.g., OpenClaw or Claude Desktop via MCP).
+
+**Layer mapping:**
+
+| Layer | Tool | Role |
+|-------|------|------|
+| Agent runtime | API service + `HederaEvmAdapter` | Executes contract calls on Hedera |
+| Agent identity & discovery | HOL Registry Broker (HCS-10) | Registers agent on-chain, enables agent-to-agent communication |
+| Skill distribution | OpenClaw / ClawHub | Publishes skill file so AI assistants can discover and use the agent |
+| Skill publishing CI | `skill-publish` GitHub Action | Automates publishing from repo to both ClawHub and HOL Registry |
+
+**Dependencies:**
+- Requires Milestone 1 complete (Hedera EVM parity — contract deploy/call working).
+- Requires Hedera account + keys provisioned.
+- Requires HOL Registry Broker API key.
+- Optional: OpenAI API key for LangChain-powered reasoning.
+
 ### Milestone 3 — Optional Hedera-native Optimization (4–8+ weeks)
 - HTS-focused redesign feasibility and pilot.
 
@@ -277,6 +313,8 @@ Minimum production controls:
 
 - [ ] Core lifecycle parity verified on Redbelly and Hedera.
 - [ ] API persistence and idempotency validated.
+- [ ] AI agent registered on HOL Registry (HCS-10) and skill published to ClawHub.
+- [ ] Agent-to-agent communication tested on Hedera testnet.
 - [ ] Security checks and static analysis pass.
 - [ ] Monitoring/alerting operational.
 - [ ] Deployment + rollback rehearsed.
@@ -290,7 +328,8 @@ Minimum production controls:
 1. Confirm Path A scope and target Hedera environment(s).
 2. Approve adapter interface and status model.
 3. Approve test gating policy (Ganache + Hedera + parity).
-4. Start implementation in a dedicated migration branch with milestone tracking.
+4. Obtain HOL Registry Broker API key and Hedera testnet credentials for Milestone 2.5.
+5. Start implementation in a dedicated migration branch with milestone tracking.
 
 ---
 
