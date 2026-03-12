@@ -1,16 +1,38 @@
 
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const Web3 = require('web3').default;
 const fs = require('fs');
 const path = require('path');
+const { getNetwork, explorerTxUrl } = require('../config/networks');
 
 const app = express();
 const port = process.env.PORT || 4000;
 app.use(bodyParser.json());
 
-// Connect to local node (Hardhat Network)
-const web3 = new Web3('http://127.0.0.1:8545');
+// ── Network selection ────────────────────────────────────────────────
+// Usage:  node mocks/mock-api.js --network hedera-testnet
+//         NETWORK=hedera-testnet node mocks/mock-api.js
+const networkArg = (() => {
+  const idx = process.argv.indexOf('--network');
+  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return process.env.NETWORK || 'local';
+})();
+
+const NET = getNetwork(networkArg);
+console.log(`Network: ${NET.name} | RPC: ${NET.rpcUrl}`);
+
+// Connect to the selected network
+const web3 = new Web3(NET.rpcUrl);
+
+// On testnet, add private key to web3 wallet so it can sign transactions
+if (!NET.usePrefundedAccounts && process.env.HEDERA_TESTNET_PRIVATE_KEY) {
+  const acct = web3.eth.accounts.privateKeyToAccount(process.env.HEDERA_TESTNET_PRIVATE_KEY);
+  web3.eth.accounts.wallet.add(acct);
+  console.log(`Wallet loaded: ${acct.address}`);
+}
+
 // Load contract artifacts (Hardhat format)
 const annuityArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/AnnuityToken.sol/AnnuityToken.json')));
 const stablecoinArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/MockStablecoin.sol/MockStablecoin.json')));
@@ -26,11 +48,12 @@ const deals = {};
 // In-memory transaction history
 const txHistory = [];
 
+// ── helpers ──────────────────────────────────────────────────────────
 function recordTxs(correlationId, action, txs) {
   if (!txs) return;
   const ts = new Date().toISOString();
   txs.forEach((tx) => {
-    txHistory.push({
+    const entry = {
       time: ts,
       correlationId,
       action,
@@ -38,13 +61,35 @@ function recordTxs(correlationId, action, txs) {
       tx: tx.tx || null,
       index: tx.index !== undefined ? tx.index : null,
       seconds: tx.seconds || null,
-    });
+    };
+    // Add explorer link for testnet transactions
+    if (tx.tx && NET.explorer) {
+      entry.explorerUrl = explorerTxUrl(NET.name, tx.tx);
+    }
+    txHistory.push(entry);
   });
+}
+
+/**
+ * Estimate gas with network multiplier.
+ */
+function gasLimit(base) {
+  return Math.ceil(base * NET.gasMultiplier);
+}
+
+/**
+ * Optional delay after tx to wait for finality on slower networks.
+ */
+function waitForFinality() {
+  if (NET.txConfirmationDelay > 0) {
+    return new Promise((r) => setTimeout(r, NET.txConfirmationDelay));
+  }
+  return Promise.resolve();
 }
 
 // 1) Submitting a Deal
 app.post('/deal', async (req, res) => {
-  try { 
+  try {
     const payload = req.body;
     const correlationId = payload.correlationId;
     const buyer = payload.participants.buyer.wallet;
@@ -54,26 +99,45 @@ app.post('/deal', async (req, res) => {
     const faceValue = seller.bidAmount;
     const couponValue = Math.floor(faceValue / termDays);
 
-    const accounts = await web3.eth.getAccounts();
-    const annuityIssuer = accounts[1];
-    const investor = accounts[2];
-    const secondary = accounts[3];
+    let accounts = await web3.eth.getAccounts();
+    // On Hedera testnet, getAccounts() returns [] — use wallet instead
+    if (accounts.length === 0 && web3.eth.accounts.wallet.length > 0) {
+      accounts = [web3.eth.accounts.wallet[0].address];
+    }
+    // On Hedera testnet we only have 1 funded account — it plays all roles
+    const annuityIssuer = accounts[1] || accounts[0];
+    const investor = accounts[2] || accounts[0];
+    const secondary = accounts[3] || accounts[0];
 
     // Deploy stablecoin using web3
     const StablecoinContract = new web3.eth.Contract(StablecoinAbi);
-    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send({ from: accounts[0], gas: 6_000_000 });
+    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send({ from: accounts[0], gas: gasLimit(6_000_000) });
+    await waitForFinality();
     const stablecoinAddress = stablecoinInstance.options.address;
 
     // Transfer funds from deployer to investor & secondary (mock balance)
     await stablecoinInstance.methods.transfer(investor, faceValue).send({ from: accounts[0] });
+    await waitForFinality();
     await stablecoinInstance.methods.transfer(secondary, faceValue).send({ from: accounts[0] });
+    await waitForFinality();
 
     const now = Math.floor(Date.now() / 1000);
-    const maturityDate = now + termDays * 24 * 60 * 60;
+
+    // On Hedera: use short maturity + short coupon intervals for demo
+    const maturityDate = NET.supportsTimeTravel
+      ? now + termDays * 24 * 60 * 60
+      : now + NET.deployMaturitySeconds;
+
     const couponDates = [];
     const couponValues = [];
     for (let i = 1; i <= termDays; i++) {
-      couponDates.push(now + i * 24 * 60 * 60);
+      if (NET.supportsTimeTravel) {
+        couponDates.push(now + i * 24 * 60 * 60);
+      } else {
+        // Space coupons evenly within maturity window (e.g., every 30s for 120s maturity)
+        const interval = Math.floor(NET.deployMaturitySeconds / (termDays + 1));
+        couponDates.push(now + i * interval);
+      }
       couponValues.push(couponValue);
     }
 
@@ -82,7 +146,8 @@ app.post('/deal', async (req, res) => {
     const annuityInstance = await AnnuityContract.deploy({
       data: AnnuityBytecode,
       arguments: [annuityIssuer, now, maturityDate, faceValue, interestRate, couponDates, couponValues, stablecoinAddress]
-    }).send({ from: annuityIssuer, gas: 8_000_000 });
+    }).send({ from: annuityIssuer, gas: gasLimit(8_000_000) });
+    await waitForFinality();
     const annuityAddress = annuityInstance.options.address;
 
   // Store deal info
@@ -100,7 +165,12 @@ app.post('/deal', async (req, res) => {
       payload
     };
     console.log(`Deal created ${correlationId} -> annuity ${annuityAddress} stablecoin ${stablecoinAddress}`);
-    res.json({ correlationId, annuityAddress, stablecoinAddress, status: 'created' });
+
+    const response = { correlationId, annuityAddress, stablecoinAddress, status: 'created' };
+    if (NET.explorer) {
+      response.explorerUrl = `${NET.explorer}/contract/${annuityAddress}`;
+    }
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -139,21 +209,25 @@ app.post('/deal/:correlationId/execute', async (req, res) => {
 
     // Approve and accept: Investor must approve transfer of faceValue to issuer
     const faceValueStr = String(deal.faceValue);
-    const approveReceipt = await stablecoin.methods.approve(deal.annuityAddress, faceValueStr).send({ from: deal.investor, gas: 200000 });
+    const approveReceipt = await stablecoin.methods.approve(deal.annuityAddress, faceValueStr).send({ from: deal.investor, gas: gasLimit(200000) });
+    await waitForFinality();
     txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
 
-    const acceptReceipt = await annuity.methods.acceptAndIssue(deal.investor).send({ from: deal.investor, gas: 500000 });
+    const acceptReceipt = await annuity.methods.acceptAndIssue(deal.investor).send({ from: deal.investor, gas: gasLimit(500000) });
+    await waitForFinality();
     txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
 
     // Issuer approves coupons (approve annuity contract to spend coupons)
     const totalCoupons = deal.couponValues.reduce((a, b) => a + Number(b), 0);
     const totalCouponsStr = String(totalCoupons);
-    const issuerApprove = await stablecoin.methods.approve(deal.annuityAddress, totalCouponsStr).send({ from: deal.annuityIssuer, gas: 200000 });
+    const issuerApprove = await stablecoin.methods.approve(deal.annuityAddress, totalCouponsStr).send({ from: deal.annuityIssuer, gas: gasLimit(200000) });
+    await waitForFinality();
     txs.push({ type: 'issuerApproveCoupons', tx: issuerApprove.transactionHash });
 
     // Pay all coupons
     for (let i = 0; i < deal.couponValues.length; i++) {
-      const payReceipt = await annuity.methods.payCoupon(i).send({ from: deal.annuityIssuer, gas: 200000 });
+      const payReceipt = await annuity.methods.payCoupon(i).send({ from: deal.annuityIssuer, gas: gasLimit(200000) });
+      await waitForFinality();
       txs.push({ type: 'payCoupon', index: i, tx: payReceipt.transactionHash });
     }
 
@@ -181,12 +255,14 @@ app.post('/deal/:correlationId/transfer', async (req, res) => {
     const txs = [];
 
     // Buyer (newOwner) approves the annuity contract to pull `price`
-    const approveReceipt = await stablecoin.methods.approve(deal.annuityAddress, String(price)).send({ from: newOwner, gas: 200000 });
+    const approveReceipt = await stablecoin.methods.approve(deal.annuityAddress, String(price)).send({ from: newOwner, gas: gasLimit(200000) });
+    await waitForFinality();
     txs.push({ type: 'buyerApprove', tx: approveReceipt.transactionHash });
 
     // Current owner initiates transfer
     const currentOwner = await annuity.methods.currentOwner().call();
-    const transferReceipt = await annuity.methods.transferAnnuity(newOwner, String(price)).send({ from: currentOwner, gas: 500000 });
+    const transferReceipt = await annuity.methods.transferAnnuity(newOwner, String(price)).send({ from: currentOwner, gas: gasLimit(500000) });
+    await waitForFinality();
     txs.push({ type: 'transferAnnuity', tx: transferReceipt.transactionHash });
 
     deal.status = 'transferred';
@@ -218,23 +294,38 @@ app.post('/deal/:correlationId/redeem', async (req, res) => {
       // Fund the issuer first if needed, then issuer sends to the annuity contract
       const issuerBal = await stablecoin.methods.balanceOf(deal.annuityIssuer).call();
       if (BigInt(issuerBal) < deficit) {
-        await stablecoin.methods.transfer(deal.annuityIssuer, String(deficit)).send({ from: accounts[0], gas: 200000 });
+        await stablecoin.methods.transfer(deal.annuityIssuer, String(deficit)).send({ from: accounts[0], gas: gasLimit(200000) });
+        await waitForFinality();
       }
-      await stablecoin.methods.transfer(deal.annuityAddress, String(deficit)).send({ from: deal.annuityIssuer, gas: 200000 });
+      await stablecoin.methods.transfer(deal.annuityAddress, String(deficit)).send({ from: deal.annuityIssuer, gas: gasLimit(200000) });
+      await waitForFinality();
     }
 
-    // Advance block timestamp past maturity for local testing (Ganache evm_increaseTime)
-    const maturityDate = Number(await annuity.methods.maturityDate().call());
-    const currentBlock = await web3.eth.getBlock('latest');
-    const currentTime = Number(currentBlock.timestamp);
-    if (currentTime < maturityDate) {
-      const timeToAdvance = maturityDate - currentTime + 60; // +60s buffer
-      await web3.currentProvider.request({ method: 'evm_increaseTime', params: [timeToAdvance] });
-      await web3.currentProvider.request({ method: 'evm_mine', params: [] });
-      txs.push({ type: 'timeTravel', seconds: timeToAdvance });
+    // Time-travel: only on networks that support it (local Hardhat)
+    if (NET.supportsTimeTravel) {
+      const maturityDate = Number(await annuity.methods.maturityDate().call());
+      const currentBlock = await web3.eth.getBlock('latest');
+      const currentTime = Number(currentBlock.timestamp);
+      if (currentTime < maturityDate) {
+        const timeToAdvance = maturityDate - currentTime + 60; // +60s buffer
+        await web3.currentProvider.request({ method: 'evm_increaseTime', params: [timeToAdvance] });
+        await web3.currentProvider.request({ method: 'evm_mine', params: [] });
+        txs.push({ type: 'timeTravel', seconds: timeToAdvance });
+      }
+    } else {
+      // On Hedera Testnet: wait for real time to pass maturity
+      const maturityDate = Number(await annuity.methods.maturityDate().call());
+      const now = Math.floor(Date.now() / 1000);
+      if (now < maturityDate) {
+        const waitSec = maturityDate - now + 5; // +5s buffer
+        console.log(`Waiting ${waitSec}s for maturity (real-time on ${NET.name})...`);
+        txs.push({ type: 'waitForMaturity', seconds: waitSec });
+        await new Promise((r) => setTimeout(r, waitSec * 1000));
+      }
     }
 
-    const redeemReceipt = await annuity.methods.redeemMaturity().send({ from: deal.annuityIssuer, gas: 500000 });
+    const redeemReceipt = await annuity.methods.redeemMaturity().send({ from: deal.annuityIssuer, gas: gasLimit(500000) });
+    await waitForFinality();
     txs.push({ type: 'redeemMaturity', tx: redeemReceipt.transactionHash });
 
     deal.status = 'redeemed';
@@ -312,7 +403,7 @@ app.get('/transactions', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Mock API listening at http://localhost:${port}`);
+  console.log(`Mock API listening at http://localhost:${port} (network: ${NET.name})`);
 });
 
 module.exports = app;
@@ -321,15 +412,17 @@ module.exports = app;
 app.get('/health', async (req, res) => {
   try {
     const rpcListening = await web3.eth.net.isListening();
-    res.json({ ok: true, rpcListening });
+    res.json({ ok: true, rpcListening, network: NET.name });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(500).json({ ok: false, error: err.message, network: NET.name });
   }
 });
 
 app.get('/', (req, res) => {
   res.json({
-    service: 'Mock API',
+    service: 'Imperium Markets API',
+    network: NET.name,
+    explorer: NET.explorer || 'N/A (local)',
     endpoints: [
       { method: 'POST', path: '/deal' },
       { method: 'GET', path: '/deal/:correlationId' },

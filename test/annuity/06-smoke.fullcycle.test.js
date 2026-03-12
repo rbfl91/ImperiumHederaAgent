@@ -34,6 +34,7 @@ async function get(path) {
 
 // ── tests ───────────────────────────────────────────────────────────
 describe('Full-Lifecycle Smoke Test', function () {
+  this.timeout(300000); // 5 minutes — testnet transactions are slow
   const correlationId = 'smoke-' + Date.now();
   let annuityAddress;
   let stablecoinAddress;
@@ -44,7 +45,7 @@ describe('Full-Lifecycle Smoke Test', function () {
 
   it('GET / — root lists all endpoints', async () => {
     const data = await get('/');
-    assert.equal(data.service, 'Mock API');
+    assert.equal(data.service, 'Imperium Markets API');
     assert.ok(data.endpoints.length >= 9, `Expected ≥9 endpoints, got ${data.endpoints.length}`);
   });
 
@@ -73,7 +74,7 @@ describe('Full-Lifecycle Smoke Test', function () {
     assert.ok(data.stablecoinAddress, 'stablecoin deployed');
     annuityAddress = data.annuityAddress;
     stablecoinAddress = data.stablecoinAddress;
-  }).timeout(30000);
+  });
 
   it('GET /deal/:id — status is created', async () => {
     const data = await get(`/deal/${correlationId}`);
@@ -97,7 +98,7 @@ describe('Full-Lifecycle Smoke Test', function () {
     // Check coupon txs
     const couponTxs = data.txs.filter((t) => t.type === 'payCoupon');
     assert.equal(couponTxs.length, 3, '3 coupon payments');
-  }).timeout(30000);
+  });
 
   it('GET /deal/:id — issued=true after execute', async () => {
     const data = await get(`/deal/${correlationId}`);
@@ -123,13 +124,13 @@ describe('Full-Lifecycle Smoke Test', function () {
     assert.ok(data.newOwner, 'newOwner present');
     assert.ok(data.price > 0, 'price > 0');
     assert.ok(data.txs.length >= 2, 'at least 2 txs (approve + transfer)');
-  }).timeout(30000);
+  });
 
   it('POST /deal/:id/redeem — redeems at maturity', async () => {
     const data = await post(`/deal/${correlationId}/redeem`);
     assert.equal(data.status, 'redeemed');
     assert.ok(data.txs.length >= 1, 'at least 1 tx');
-  }).timeout(60000);
+  });
 
   it('GET /deal/:id — expired=true after redeem', async () => {
     const data = await get(`/deal/${correlationId}`);

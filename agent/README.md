@@ -4,8 +4,8 @@ Rule-based interactive agent that orchestrates AnnuityToken smart contract opera
 
 ## Prerequisites
 
-1. **Ganache** running on port 8545
-2. **Contracts compiled and migrated**
+1. **Hardhat node** running on port 8545
+2. **Contracts compiled and deployed**
 3. **Mock API** running on port 4000
 
 ## Quick Start
@@ -16,9 +16,10 @@ Rule-based interactive agent that orchestrates AnnuityToken smart contract opera
 
 # Option B — Manual
 # Terminal 1
-npx ganache --port 8545 --deterministic
+npx hardhat node
 # Terminal 2
-truffle compile && truffle migrate --network development --reset
+npx hardhat compile
+npx hardhat run scripts/deploy.js --network localhost
 node mocks/mock-api.js
 # Terminal 3
 node agent/cli-agent.js
@@ -74,6 +75,6 @@ list deals                        → all deals in session
 ## Architecture
 
 - **No LLM required** — intent detection via pattern matching
-- **Calls existing API** — 8 endpoints on `mock-api.js`
-- **Stateful session** — remembers last deal ID + transaction log
+- **Calls existing API** — 10 endpoints on `mock-api.js`
+- **Stateful session** — remembers last deal ID
 - **Extensible** — swap the intent parser for a LangChain LLM agent later (Milestone 2.5)

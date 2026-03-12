@@ -1,15 +1,60 @@
-# Imperium Markets AnnuityToken Smart Contract
+# Imperium Markets — AnnuityToken
 
-A Solidity smart contract Truffle project for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin. This contract was developed for Imperium Markets / Catena Annuity Use Case, allowing an issuer to offer fixed-income annuities to investors, pay periodic coupons, and enable secure secondary market transfers.
+A Solidity smart contract project for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin on Hedera Network. Built with Hardhat + ethers.js v6, including a full-lifecycle CLI agent, mock API gateway, and automated demo bot.
+
+## Quick Start
+
+```bash
+# Install dependencies
+npm install
+
+# Run all contract tests
+npm test
+
+# Launch full stack (Hardhat node + deploy + API + agent)
+./start.sh
+
+# Run demo bot (start backend separately, then in another terminal)
+node test/annuity/demo-bot.js --fast
+```
 
 ## Features
 
--  Issue Annuities: Investors can accept and fund annuities using a stablecoin.
--  Coupon Payments: Issuer can pay periodic coupon payments to the current owner.
--  Transferable Ownership: Annuities can be sold or transferred to new owners for a stablecoin price.
--  Secure Payments: Uses OpenZeppelin's SafeERC20 to securely transfer funds via a mock stablecoin.
--  Reentrancy Protection: All critical functions (acceptAndIssue, payCoupon, transferAnnuity, redeemMaturity) are protected with OpenZeppelin’s ReentrancyGuard.
--  Burn / Expire Annuities: Issuers can mark annuities as expired after redemption or maturity.
+- **Issue Annuities:** Investors accept and fund annuities using a stablecoin.
+- **Coupon Payments:** Issuer pays periodic coupon payments to the current owner.
+- **Transferable Ownership:** Annuities can be sold or transferred to new owners for a stablecoin price.
+- **Maturity Redemption:** Face value returned to current owner at maturity.
+- **Secure Payments:** OpenZeppelin SafeERC20 for all fund transfers.
+- **Reentrancy Protection:** All critical functions protected with OpenZeppelin ReentrancyGuard.
+- **CLI Agent (v0.2):** Interactive rule-based agent with 10 intents for full lifecycle management.
+- **Mock API Gateway:** Express server with 10 endpoints for contract orchestration.
+- **Demo Bot:** Visual walkthrough bot for screen recordings and presentations.
+
+## Project Structure
+
+```
+contracts/
+  AnnuityToken.sol          # Core annuity smart contract
+  MockStablecoin.sol        # ERC-20 mock for testing
+  MaliciousStablecoin.sol   # Adversarial mock for reentrancy tests
+scripts/
+  deploy.js                 # Hardhat deploy script
+mocks/
+  mock-api.js               # Express API gateway (10 endpoints)
+agent/
+  cli-agent.js              # Interactive CLI agent (10 intents)
+test/annuity/
+  01-annuity.flow.test.js       # Lifecycle + secondary trading
+  02-annuity.payments.test.js   # Coupon payments
+  03-annuity.transfer.test.js   # Secondary transfers
+  04-annuity.security.test.js   # Access control
+  05-annuity.reentrancy.test.js # Reentrancy guard
+  06-smoke.fullcycle.test.js    # API + agent parser smoke test
+  01-annuity.api.flow.test.js   # API integration test
+  demo-bot.js                   # Visual demo bot
+docs/
+  hedera-migration-blueprint.md # Deployment roadmap
+```
 
 ## Contract Details
 
@@ -29,26 +74,36 @@ A Solidity smart contract Truffle project for creating, issuing, and trading tok
 - `Issued`: Emitted when annuity is issued.
 - `CouponPaid`: Emitted when a coupon is paid.
 - `AnnuityTransferred`: Emitted when annuity is transferred to a new owner.
-- `AnnuityRedeemed`: Emitted when annuity reaches it's maturity date.
-- `Expired`: Emitted when annuity is burned.
+- `Redeemed`: Emitted when annuity reaches maturity.
+- `Expired`: Emitted when annuity expires after redemption.
 
-## Functions
-
-- `acceptAndIssue(address _investor)`: Investor accepts the annuity and pays the face value. Requires prior approval for the contract to spend `faceValue`.
-- `payCoupon(uint256 index)`: Issuer pays a coupon to the current owner. Requires prior approval for the contract to spend the coupon amount.
-- `transferAnnuity(address newOwner, uint256 price)`: Current owner transfers annuity to a new owner for a stablecoin price. Buyer must approve the contract for the price.
+**Functions:**
+- `acceptAndIssue(address _investor)`: Investor accepts the annuity and pays the face value.
+- `payCoupon(uint256 index)`: Issuer pays a coupon to the current owner.
+- `transferAnnuity(address newOwner, uint256 price)`: Transfer annuity to a new owner for a stablecoin price.
+- `redeemMaturity()`: Redeems the annuity at maturity.
 - `getCouponCount()`: Returns the total number of coupons.
-- `getCouponValue(uint256 index)`: Returns the value of a specific coupon.
-- `getCouponDate(uint256 index)`: Returns the date of a specific coupon. 
-- `redeemMaturity()`: Redeems the annuity.
+- `isCouponPaid(uint256 index)`: Returns whether a coupon has been paid.
 
-## Usage Example
+## NPM Scripts
 
-1. Deploy the contract with issuer, start/maturity dates, face value, interest rate, coupon schedule, and stablecoin address.
-2. Investor approves `faceValue` to the contract and calls `acceptAndIssue`.
-3. Issuer pays coupons using `payCoupon`.
-4. Annuity ownership can be transferred using `transferAnnuity`.
+| Command | Description |
+|---------|-------------|
+| `npm test` | Run all contract tests |
+| `npm run test:contracts` | Run only the 5 contract test files |
+| `npm run compile` | Compile Solidity contracts |
+| `npm run deploy:local` | Deploy to local Hardhat node |
+| `npm run node` | Start Hardhat node |
+| `npm start` | Launch full stack via start.sh |
 
 ## Dependencies
 
-- [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) (`IERC20`, `SafeERC20`)
+- [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) — SafeERC20, ReentrancyGuard
+- [Hardhat](https://hardhat.org/) — Build, test, deploy
+- [ethers.js v6](https://docs.ethers.org/v6/) — Contract interaction in tests
+- [web3.js v4](https://web3js.org/) — API gateway runtime
+- [Express](https://expressjs.com/) — Mock API server
+
+## License
+
+ISC

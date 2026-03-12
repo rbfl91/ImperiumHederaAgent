@@ -1,11 +1,18 @@
 {
+  "name": "imperium-annuity",
+  "version": "1.0.0",
+  "description": "Tokenized annuity smart contracts and CLI agent for Hedera Network",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
     "test:contracts": "hardhat test test/annuity/01-annuity.flow.test.js test/annuity/02-annuity.payments.test.js test/annuity/03-annuity.transfer.test.js test/annuity/04-annuity.security.test.js test/annuity/05-annuity.reentrancy.test.js",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:hedera": "hardhat run scripts/deploy.js --network hederaTestnet",
     "node": "hardhat node",
-    "start": "./start.sh"
+    "start": "./start.sh",
+    "start:hedera": "./start.sh --network hedera-testnet",
+    "demo": "node test/annuity/demo-bot.js",
+    "demo:hedera": "node test/annuity/demo-bot.js --network hedera-testnet"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.4.0",

@@ -9,15 +9,23 @@
  *   node agent/cli-agent.js
  *
  * Prerequisites:
- *   1. Ganache running on port 8545
- *   2. mock-api.js running on port 4000
- *      (truffle compile && truffle migrate --network development --reset)
+ *   1. Hardhat node running on port 8545  (npx hardhat node)
+ *   2. Contracts deployed                 (npx hardhat run scripts/deploy.js --network localhost)
+ *   3. mock-api.js running on port 4000   (node mocks/mock-api.js)
+ *
+ *   Or simply:  ./start.sh
  */
 
 const readline = require('readline');
 const fetch = require('node-fetch');
 
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:4000';
+const NETWORK = process.env.NETWORK || 'local';
+
+// HashScan explorer base for Hedera Testnet
+const EXPLORER_BASE = NETWORK === 'hedera-testnet'
+  ? 'https://hashscan.io/testnet'
+  : null;
 
 // ── state ───────────────────────────────────────────────────────────
 let lastCorrelationId = null;
@@ -30,6 +38,16 @@ function uid() {
 function short(addr) {
   if (!addr) return '—';
   return addr.slice(0, 6) + '...' + addr.slice(-4);
+}
+
+function txLink(hash) {
+  if (!hash || !EXPLORER_BASE) return short(hash);
+  return `${short(hash)}  ${EXPLORER_BASE}/tx/${hash}`;
+}
+
+function contractLink(addr) {
+  if (!addr || !EXPLORER_BASE) return short(addr);
+  return `${short(addr)}  ${EXPLORER_BASE}/contract/${addr}`;
 }
 
 function fmtNum(n) {
@@ -180,8 +198,8 @@ async function handleCreate(termDays, faceValue) {
     printAgent([
       '✅ Deal created successfully!',
       `📋 Correlation ID : ${result.correlationId}`,
-      `📄 Annuity Contract : ${short(result.annuityAddress)}`,
-      `💰 Stablecoin       : ${short(result.stablecoinAddress)}`,
+      `📄 Annuity Contract : ${contractLink(result.annuityAddress)}`,
+      `💰 Stablecoin       : ${contractLink(result.stablecoinAddress)}`,
       `📊 Status           : ${result.status}`,
       '',
       'Next: "check status", "execute the deal", or "show balances".',
@@ -230,7 +248,7 @@ async function handleExecute(correlationId) {
       result.txs.forEach((tx, i) => {
         const label = tx.type.replace(/([A-Z])/g, ' $1').trim();
         const idx = tx.index !== undefined ? ` #${tx.index}` : '';
-        lines.push(`   ${i + 1}. ${label}${idx}  → ${short(tx.tx)}`);
+        lines.push(`   ${i + 1}. ${label}${idx}  → ${txLink(tx.tx)}`);
       });
     }
     lines.push('');
@@ -260,7 +278,7 @@ async function handleTransfer(correlationId, price) {
     if (result.txs) {
       result.txs.forEach((tx, i) => {
         const label = tx.type.replace(/([A-Z])/g, ' $1').trim();
-        lines.push(`   ${i + 1}. ${label}  → ${short(tx.tx)}`);
+        lines.push(`   ${i + 1}. ${label}  → ${txLink(tx.tx)}`);
       });
     }
     lines.push('');
@@ -286,8 +304,10 @@ async function handleRedeem(correlationId) {
         const label = tx.type.replace(/([A-Z])/g, ' $1').trim();
         if (tx.type === 'timeTravel') {
           lines.push(`   ⏩ Time-travelled ${fmtNum(tx.seconds)}s to reach maturity`);
+        } else if (tx.type === 'waitForMaturity') {
+          lines.push(`   ⏳ Waited ${fmtNum(tx.seconds)}s for real-time maturity`);
         } else {
-          lines.push(`   ${i + 1}. ${label}  → ${short(tx.tx)}`);
+          lines.push(`   ${i + 1}. ${label}  → ${txLink(tx.tx)}`);
         }
       });
     }
@@ -372,7 +392,7 @@ async function handleTxLog(correlationId) {
     entries.forEach((t, i) => {
       const typeLabel = t.type.replace(/([A-Z])/g, ' $1').trim();
       const idx = t.index !== null && t.index !== undefined ? ` #${t.index}` : '';
-      const hash = t.tx ? short(t.tx) : '—';
+      const hash = t.tx ? txLink(t.tx) : '—';
       const time = t.time ? t.time.slice(11, 19) : '??:??:??';
       lines.push(`   ${i + 1}. [${time}] ${t.action} → ${typeLabel}${idx}  ${hash}`);
     });
@@ -422,13 +442,15 @@ function handleHelp() {
 
 // ── main loop ───────────────────────────────────────────────────────
 async function main() {
+  const netLabel = NETWORK === 'local' ? 'Local (Hardhat)' : NETWORK;
   console.log();
   console.log('  ╔═══════════════════════════════════════════════════╗');
-  console.log('  ║   🦞  Imperium Markets — Annuity Agent  (v0.2)   ║');
+  console.log('  ║   🦞  Imperium Markets — Annuity Agent  (v0.3)   ║');
   console.log('  ║                                                   ║');
   console.log('  ║   Rule-based agent for AnnuityToken operations.   ║');
   console.log('  ║   Type "help" for available commands.             ║');
   console.log('  ╚═══════════════════════════════════════════════════╝');
+  console.log(`  Network: ${netLabel}`);
   console.log();
 
   const rl = readline.createInterface({

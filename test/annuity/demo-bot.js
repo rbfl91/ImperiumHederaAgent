@@ -7,8 +7,9 @@
  * full lifecycle unfold in real-time.
  *
  * Prerequisites:
- *   - Ganache on port 8545 + contracts migrated
+ *   - Hardhat node on port 8545 + contracts deployed
  *   - mock-api.js on port 4000
+ *   (or just run ./start.sh first, then run the bot in another terminal)
  *
  * Usage:
  *   node test/annuity/demo-bot.js
@@ -20,8 +21,17 @@ const path = require('path');
 
 // ── config ──────────────────────────────────────────────────────────
 const FAST = process.argv.includes('--fast');
+const NETWORK = (() => {
+  const idx = process.argv.indexOf('--network');
+  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return process.env.NETWORK || 'local';
+})();
+const IS_TESTNET = NETWORK !== 'local';
+
 const CHAR_DELAY  = FAST ? 25  : 100;  // ms per character typed
 const PAUSE_AFTER = FAST ? 1500 : 3500; // ms pause after response
+// Testnet transactions take 3-5s each; redeem may wait for real-time maturity
+const TESTNET_TIMEOUT = 180000;  // 3 minutes for operations that wait for maturity
 
 // ── helpers ─────────────────────────────────────────────────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -142,7 +152,7 @@ const STEPS = [
     title: 'Execute the Deal',
     description: 'Investor buys annuity, issuer pays 3 coupons',
     command: 'execute the deal',
-    timeout: 30000,
+    timeout: IS_TESTNET ? TESTNET_TIMEOUT : 30000,
   },
   {
     title: 'Check Status (Post-Execute)',
@@ -163,7 +173,7 @@ const STEPS = [
     title: 'Transfer to Secondary Buyer',
     description: 'Sell annuity at 90% face value',
     command: 'transfer the deal',
-    timeout: 30000,
+    timeout: IS_TESTNET ? TESTNET_TIMEOUT : 30000,
   },
   {
     title: 'Post-Transfer Balances',
@@ -172,9 +182,9 @@ const STEPS = [
   },
   {
     title: 'Redeem at Maturity',
-    description: 'Time-travel to maturity, redeem face value',
+    description: IS_TESTNET ? 'Wait for real-time maturity, redeem face value' : 'Time-travel to maturity, redeem face value',
     command: 'redeem the deal',
-    timeout: 60000,
+    timeout: IS_TESTNET ? TESTNET_TIMEOUT : 60000,
   },
   {
     title: 'Check Status (Post-Redeem)',
@@ -209,6 +219,8 @@ async function main() {
   console.log(`${BOLD}  ║   coupon settlement, secondary market transfer,       ║${RESET}`);
   console.log(`${BOLD}  ║   and maturity redemption on Hedera Network.          ║${RESET}`);
   console.log(`${BOLD}  ╚═══════════════════════════════════════════════════════╝${RESET}`);
+  const netLabel = IS_TESTNET ? NETWORK : 'Local (Hardhat)';
+  console.log(`${DIM}  Network: ${netLabel}${RESET}`);
   console.log();
   await sleep(2000);
 
@@ -219,7 +231,7 @@ async function main() {
   const agentPath = path.join(__dirname, '../../agent/cli-agent.js');
   const proc = spawn('node', [agentPath], {
     cwd: path.join(__dirname, '../..'),
-    env: { ...process.env, API_BASE: 'http://127.0.0.1:4000' },
+    env: { ...process.env, API_BASE: 'http://127.0.0.1:4000', NETWORK },
   });
 
   proc.stderr.on('data', (chunk) => {
@@ -242,8 +254,9 @@ async function main() {
       // Type the command
       await typeCommand(proc, step.command);
 
-      // Wait for response
-      await waitForPrompt(proc, step.timeout || 60000);
+      // Wait for response (testnet ops are slower)
+      const defaultTimeout = IS_TESTNET ? TESTNET_TIMEOUT : 60000;
+      await waitForPrompt(proc, step.timeout || defaultTimeout);
 
       // Pause to let the viewer read the output
       await sleep(PAUSE_AFTER);
