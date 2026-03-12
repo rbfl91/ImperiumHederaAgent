@@ -1,12 +1,21 @@
 {
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:contracts": "hardhat test test/annuity/01-annuity.flow.test.js test/annuity/02-annuity.payments.test.js test/annuity/03-annuity.transfer.test.js test/annuity/04-annuity.security.test.js test/annuity/05-annuity.reentrancy.test.js",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "node": "hardhat node",
+    "start": "./start.sh"
+  },
   "dependencies": {
     "@openzeppelin/contracts": "^5.4.0",
     "web3": "^4.16.0"
   },
   "devDependencies": {
-    "@openzeppelin/test-helpers": "^0.5.16",
-    "truffle": "^5.11.5",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^17.3.1",
     "express": "^4.18.2",
+    "hardhat": "^2.28.6",
     "node-fetch": "^2.6.7"
   }
 }

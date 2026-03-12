@@ -1,351 +1,318 @@
-# Imperium Markets — Redbelly → Hedera Migration Blueprint (Path A First)
+# Imperium Markets — Hedera Testnet Deployment Plan
 
-**Version:** 1.0  
-**Date:** 2026-03-03  
-**Authors:** Imperium Markets Engineering  
-**Scope:** Replicate current Redbelly tokenization features on Hedera while preserving business behavior and minimizing delivery risk.
-
----
-
-## 1) Executive Summary
-
-This blueprint defines a **phased migration strategy** to replicate Imperium Markets tokenization flows from Redbelly to Hedera.
-
-### Recommended approach
-
-- **Phase 1 (Path A):** Use Hedera Smart Contract Service (EVM-compatible) to port existing Solidity + API orchestration with minimal behavioral change.
-- **Phase 2 (optional):** Evaluate Hedera-native optimization (HTS + SDK) once feature parity and production stability are achieved.
-
-### Why Path A first
-
-- Fastest time-to-parity.
-- Preserves existing contract and test semantics.
-- Reduces delivery risk by avoiding immediate architecture rewrite.
-- Enables side-by-side parity validation against Redbelly.
+**Version:** 2.1
+**Date:** 2026-03-12
+**Target:** Deploy AnnuityToken to Hedera Testnet + agent demo in 5 days
+**Authors:** Imperium Markets Engineering
 
 ---
 
-## 2) Current Project Baseline (as-is)
+## 1) Objective
 
-### Core assets
-
-- Contract: `contracts/AnnuityToken.sol`
-- Token mocks: `contracts/MockStablecoin.sol`, `contracts/MaliciousStablecoin.sol`
-- Deploy tooling: `truffle-config.js`, `migrations/2_deploy_contracts.js`
-- Tests: `test/annuity/*.test.js`
-- API gateway prototype: `mocks/mock-api.js`
-- Artifacts: `build/contracts/*.json`
-
-### Current functional lifecycle in contract
-
-1. `acceptAndIssue(address investor)`
-2. `payCoupon(uint256 index)`
-3. `transferAnnuity(address newOwner, uint256 price)`
-4. `redeemMaturity()`
-
-### Important contract mechanics to preserve
-
-- Coupon schedule arrays:
-  - `uint256[] public couponDates`
-  - `uint256[] public couponValues`
-- Approval-driven ERC-20 pull model (`safeTransferFrom`) in:
-  - `acceptAndIssue`
-  - `payCoupon`
-  - `transferAnnuity`
-- Maturity redemption via direct transfer (`safeTransfer`) in:
-  - `redeemMaturity`
-
----
-
-## 3) Migration Goals
-
-### Primary goals
-
-- Replicate current Redbelly tokenization features on Hedera.
-- Keep business behavior consistent across chains.
-- Minimize code divergence and operational complexity.
+Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate build tooling from Truffle to **Hardhat**, and run the CLI agent against live Hedera infrastructure for a management demo.
 
 ### Success criteria
 
-- Same lifecycle outcomes on both chains for core scenarios.
-- No regression in financial invariants or ownership transitions.
-- Production-grade API operation with persistence, observability, and security controls.
-- Clear deployment and rollback procedures for both networks.
+- AnnuityToken + MockStablecoin deployed to Hedera Testnet.
+- Full lifecycle executable on-chain: issue → coupons → transfer → redeem.
+- CLI agent and demo bot running against Hedera Testnet (not Ganache).
+- All existing Ganache-based tests still pass locally.
 
 ---
 
-## 4) Non-Goals (Phase 1)
+## 2) Current State (what we have)
 
-- Full immediate redesign to Hedera-native HTS model.
-- Rewriting all tooling at once (Truffle replacement can be staged).
-- Introducing cross-chain atomic settlement in Phase 1.
-
----
-
-## 5) Architecture Strategy
-
-### 5.1 Chain Adapter Pattern (target)
-
-Introduce a network abstraction boundary:
-
-- `DealService` (business orchestration, chain-agnostic)
-- `RedbellyAdapter` (existing behavior)
-- `HederaEvmAdapter` (new)
-- Optional future `HederaNativeAdapter` (Phase 2+)
-
-All external endpoints call `DealService`; adapters encapsulate network-specific deploy/call/receipt/event handling.
-
-### 5.2 Environment Model
-
-- `local` (Ganache): unit + fast integration dev loop
-- `hedera-testnet`: integration and parity gate
-- `redbelly-testnet` (or current test env): parity gate
-- `production`: controlled rollout
+| Asset | Status |
+|-------|--------|
+| `contracts/AnnuityToken.sol` | ✅ Production-ready Solidity ^0.8.21 |
+| `contracts/MockStablecoin.sol` | ✅ ERC-20 mock for testing |
+| `mocks/mock-api.js` | ✅ 10 endpoints, full lifecycle, Hardhat artifact paths |
+| `agent/cli-agent.js` | ✅ v0.2, 10 intents, calls API |
+| `hardhat.config.js` | ✅ Solidity 0.8.21, Hardhat Network + localhost |
+| `scripts/deploy.js` | ✅ Hardhat deploy script (MockStablecoin + AnnuityToken) |
+| `test/annuity/01–05*.test.js` | ✅ 5 contract test files (migrated to ethers.js v6) |
+| `test/annuity/01-annuity.api.flow.test.js` | ✅ API integration test (fetch-based, uses 127.0.0.1) |
+| `test/annuity/06-smoke.fullcycle.test.js` | ✅ 27 tests (API + agent parser, migrated to describe()) |
+| `test/annuity/demo-bot.js` | ✅ Visual demo bot for recordings |
+| `start.sh` | ✅ Single-command launcher (Hardhat node + deploy) |
+| `.env.example` | ✅ Template for Hedera credentials |
+| `.gitignore` | ✅ Excludes node_modules, .env, cache/, artifacts/ |
+| `truffle-config.js` + `migrations/` | ✅ **Deleted** — fully replaced by Hardhat |
+| `build/` (Truffle artifacts) | ✅ **Deleted** — replaced by `artifacts/` (gitignored) |
+| Hedera Testnet account | ❌ Needed |
 
 ---
 
-## 6) Testing Strategy (required)
+## 3) Migration Plan (5-day schedule)
 
-### Keep Ganache? Yes.
+### Day 1 — Hardhat Setup + Local Parity ✅ COMPLETED
 
-Ganache remains required for fast local deterministic development, but **cannot be the only release gate**.
+**Goal:** Replace Truffle with Hardhat, all existing tests pass on Hardhat Network.
 
-### 3-tier test model
+| Task | Status | Details |
+|------|--------|---------|
+| Install Hardhat + plugins | ✅ | `hardhat@^2.28.6`, `@nomicfoundation/hardhat-toolbox@^5.0.0`, `dotenv` |
+| Create `hardhat.config.js` | ✅ | Solidity 0.8.21, Hardhat Network, Mocha 60s timeout |
+| Write Hardhat deploy script | ✅ | `scripts/deploy.js` — deploys MockStablecoin + AnnuityToken |
+| Migrate tests to ethers.js v6 | ✅ | Full rewrite: `contract()`→`describe()`, `artifacts.require`→`ethers.getContractFactory`, `web3.utils`→`ethers` utils, `expectRevert`→`chai-matchers`, `BN`→`BigInt` |
+| Verify local parity | ✅ | All 10 contract tests pass on Hardhat Network (799ms) |
+| Remove Truffle | ✅ | Deleted `truffle-config.js`, `migrations/`, `build/` |
+| Update `start.sh` | ✅ | `npx hardhat node` + `npx hardhat run scripts/deploy.js --network localhost` |
+| Update `mock-api.js` | ✅ | ABI paths: `build/contracts/` → `artifacts/contracts/*.sol/` |
+| Update `package.json` | ✅ | Added npm scripts: `compile`, `test`, `test:contracts`, `deploy:local`, `node`, `start` |
+| Create `.env.example` | ✅ | Template for Hedera credentials (Day 2+) |
+| Update `.gitignore` | ✅ | Added `cache/`, `artifacts/`, `.env`, `.DS_Store` |
 
-1. **Tier 1 — Local deterministic (Ganache)**
-   - Unit tests and business logic regression.
-2. **Tier 2 — Hedera integration**
-   - Real RPC/provider behavior, receipts/finality, gas/fee realism.
-3. **Tier 3 — Cross-chain parity**
-   - Same scenario suite on Redbelly and Hedera; compare outcomes.
+**Gate:** ✅ `npx hardhat test` — all 10 contract tests green. `start.sh` → full stack works.
 
-### Release gating rule
+#### Day 1 — Key decisions made
 
-- Ganache pass = logic confidence
-- Hedera integration pass = network confidence
-- Redbelly/Hedera parity pass = release confidence
-
----
-
-## 7) File-by-File Migration Blueprint
-
-### 7.1 Contracts
-
-#### `contracts/AnnuityToken.sol`
-**Action:** Keep in Phase 1, validate on Hedera EVM.  
-**Checks:**
-- Compiler + OZ compatibility on Hedera deployment toolchain.
-- Timestamp assumptions (`block.timestamp`) under test.
-- Event parity and revert messages across networks.
-
-**Potential Phase 2 changes:**
-- HTS-native integration adaptations (if chosen).
-- Additional role controls and pausable admin safeguards.
-
-#### `contracts/MockStablecoin.sol`
-**Action:** Keep for local tests; replace with Hedera-compatible test token strategy in integration environments.  
-**Checks:** Decimals and allowance semantics consistency.
-
-#### `contracts/MaliciousStablecoin.sol`
-**Action:** Keep for adversarial testing in local network.
+1. **Hardhat 2 (not 3):** Hardhat 3 requires ESM (`"type": "module"`) and Node.js v22.10+. Since the entire project is CommonJS, we chose Hardhat 2.28.6 to avoid a massive ESM conversion.
+2. **Full ethers.js rewrite (not hardhat-web3 plugin):** `@nomiclabs/hardhat-web3` targets web3 v1.x, but the project uses web3 v4. Full ethers.js v6 rewrite was cleaner.
+3. **web3 v4 kept in mock-api.js only:** The API server talks JSON-RPC directly — works with any node (Hardhat, Ganache, Hedera).
 
 ---
 
-### 7.2 API / Gateway
+### Day 2 — Hedera Testnet Account + Deployment
 
-#### `mocks/mock-api.js`
-**Action:** Refactor into production-ready API service with chain adapters.  
-**Required upgrades:**
-- Externalized config (`.env`) per chain.
-- Deal persistence in DB (remove in-memory-only state).
-- Request schema validation.
-- Idempotency keys for execute actions.
-- Structured logs + correlation IDs.
-- Retry policy and receipt polling with timeouts.
-- Health checks per dependency (RPC + DB).
+**Goal:** Deploy contracts to Hedera Testnet.
 
----
+| Task | Details |
+|------|---------|
+| Create Hedera Testnet account | [portal.hedera.com](https://portal.hedera.com) — get Account ID + private key |
+| Fund account | Testnet HBAR via faucet |
+| Configure `.env` | `HEDERA_TESTNET_ACCOUNT_ID`, `HEDERA_TESTNET_PRIVATE_KEY`, `HEDERA_TESTNET_RPC_URL` |
+| Add Hedera network to `hardhat.config.js` | URL: `https://testnet.hashio.io/api` (Hashio JSON-RPC Relay) |
+| Deploy to Hedera Testnet | `npx hardhat run scripts/deploy.js --network hederaTestnet` |
+| Record deployed addresses | Save to `deployments/hedera-testnet.json` |
+| Verify contracts | Check on [hashscan.io/testnet](https://hashscan.io/testnet) |
 
-### 7.3 Tests
-
-#### `test/annuity/01-annuity.flow.test.js`
-#### `test/annuity/02-annuity.payments.test.js`
-#### `test/annuity/03-annuity.transfer.test.js`
-#### `test/annuity/04-annuity.security.test.js`
-#### `test/annuity/05-annuity.reentrancy.test.js`
-**Action:** Keep as baseline and ensure chain-parameterized execution.
-
-#### `test/annuity/01-annuity.api.flow.test.js`
-**Action:** Expand to run against both adapters and environments.  
-**Add assertions:**
-- Receipt status + tx hash persistence.
-- Eventual consistency checks (`GET /deal/:id`).
-- Error-path/idempotency behavior.
+**Gate:** Both contracts visible on HashScan, ABI matches.
 
 ---
 
-### 7.4 Tooling / Deploy
+### Day 3 — API + Agent on Hedera Testnet
 
-#### `truffle-config.js`
-**Action:** Add Hedera network profile in Phase 1, or prepare staged migration to Hardhat if plugin ecosystem is preferable.
+**Goal:** Agent executes full lifecycle against Hedera Testnet.
 
-#### `migrations/2_deploy_contracts.js`
-**Action:** Parameterize by network/env config; avoid hardcoded assumptions and addresses.
+| Task | Details |
+|------|---------|
+| Add `--network` flag to `mock-api.js` | Load RPC URL + deployed addresses from config/env |
+| Create `config/networks.js` | Maps `local` → Hardhat Network, `hedera-testnet` → Hashio RPC + deployed addresses |
+| Fund test wallets | Transfer testnet HBAR + stablecoins to issuer/investor/secondary accounts |
+| Test API endpoints | `POST /deal`, `GET /deal/:id`, `POST /deal/:id/execute` on Hedera |
+| Handle Hedera differences | Longer finality (~3-5s), gas estimation, `evm_increaseTime` not available |
+| Redeem workaround | On testnet, skip time-travel — deploy with short maturity (e.g., 60s) for demo |
+| Run agent against testnet | `API_BASE=http://127.0.0.1:4000 node agent/cli-agent.js` |
 
-#### `package.json`
-**Action:** Add scripts for:
-- Local tests.
-- Hedera integration tests.
-- Parity suite.
-- Lint/type/security checks.
-
----
-
-## 8) Data and API Contracts
-
-Define canonical API payload schema and persistence model:
-
-- Deal identity: `correlationId` (unique + indexed).
-- Network metadata: `chain`, `network`, `rpcProfile`.
-- On-chain refs: contract addresses, tx hashes, block numbers.
-- Status model: `created`, `pending_execution`, `executed`, `failed`, `reconciled`.
-- Error envelope: code, message, retriable flag, original chain error.
+**Gate:** Full lifecycle works via agent on Hedera Testnet.
 
 ---
 
-## 9) Security & Compliance Hardening
+### Day 4 — Testing + Demo Polish
 
-Required before production rollout:
+**Goal:** Reliable demo, polished output.
 
-- Secret management for keys (never plaintext in repo).
-- Access control for API endpoints.
-- Input validation and rate limiting.
-- Audit logging and retention policy.
-- Static analysis in CI (Slither + dependency scanning).
-- Incident response runbook and rollback procedure.
-- Multi-sig controls for privileged production operations (if applicable).
+| Task | Details |
+|------|---------|
+| Run smoke test on testnet | Adapt `06-smoke.fullcycle.test.js` for Hedera (longer timeouts, no time-travel) |
+| Run demo bot | `node test/annuity/demo-bot.js` against Hedera Testnet |
+| Add HashScan links to agent output | Show `https://hashscan.io/testnet/tx/{hash}` for each tx |
+| Update demo bot header | Confirm branding, remove any Ganache references |
+| Update `start.sh` | Add `--network hedera-testnet` option |
+| Dry-run the recording | Full screen recording pass, check timing |
 
----
-
-## 10) Observability & Operations
-
-Minimum production controls:
-
-- Structured logs (JSON) with `correlationId`.
-- Metrics: tx latency, failure rate, retry count, queue depth.
-- Alerts for RPC downtime, execution failures, reconciliation drift.
-- Dashboard per chain and environment.
-- Runbook for manual replay/reconciliation.
+**Gate:** Demo bot runs clean end-to-end on Hedera Testnet. Recording looks professional.
 
 ---
 
-## 11) Risk Register (Top Items)
+### Day 5 — Buffer + Recording
 
-| # | Risk | Mitigation |
-|---|------|------------|
-| 1 | False parity confidence from Ganache-only testing | Enforce Hedera integration + parity gates |
-| 2 | Network-specific receipt/finality differences | Adapter-level polling, retries, timeout controls |
-| 3 | Duplicate execution from retries/user resubmission | Idempotency keys + persisted execution state machine |
-| 4 | Config drift between Redbelly and Hedera environments | Centralized typed config + environment validation |
-| 5 | Operational blind spots in production | Logs/metrics/alerts before launch |
+**Goal:** Record final demo, prepare materials.
 
----
-
-## 12) Delivery Plan & Milestones
-
-### Milestone 0 — Design & Readiness (1–2 weeks)
-- Finalize adapter interfaces.
-- Define schemas and status model.
-- Finalize environment and key-management policy.
-
-### Milestone 1 — Hedera Path A Parity (2–4 weeks)
-- Hedera adapter + deployment profile.
-- API wired to adapter boundary.
-- Hedera integration tests green.
-
-### Milestone 2 — Production Hardening (3–6 weeks)
-- DB persistence, idempotency, observability, security controls.
-- CI/CD multi-network gates.
-- Runbooks and operational readiness.
-
-### Milestone 2.5 — AI Agent via HOL Registry Broker + OpenClaw (2–4 weeks)
-
-Deploy an AI agent registered on the Hashgraph Online (HOL) Universal Registry
-that orchestrates Imperium Markets annuity contract operations on Hedera, and
-distribute it as a skill on ClawHub for AI assistant consumption.
-
-**Agent Runtime & Registration (Registry Broker / HCS-10):**
-- Register an Imperium Markets AI agent on the Universal Registry using HCS-10 (OpenConvAI).
-- Implement agent skills: deal submission, status query, deal execution.
-- Integrate `@hashgraphonline/standards-agent-kit` with LangChain for agentic orchestration.
-- Wire agent actions to the existing `HederaEvmAdapter` for contract calls.
-- Enable agent-to-agent discovery and communication via Registry Broker API.
-- Add agent identity profile (HCS-11) with Imperium Markets metadata.
-- Test agent interactions on Hedera testnet.
-
-**Skill Distribution (OpenClaw / ClawHub):**
-- Author a `SKILL.md` file describing Imperium Markets agent capabilities.
-- Publish to ClawHub so AI coding assistants (OpenClaw, Claude, Cursor, Codex) can discover and invoke the agent.
-- Set up `hashgraph-online/skill-publish` GitHub Action for automated dual publishing (HOL Registry + ClawHub) on release.
-- Validate skill consumption from at least one AI assistant (e.g., OpenClaw or Claude Desktop via MCP).
-
-**Layer mapping:**
-
-| Layer | Tool | Role |
-|-------|------|------|
-| Agent runtime | API service + `HederaEvmAdapter` | Executes contract calls on Hedera |
-| Agent identity & discovery | HOL Registry Broker (HCS-10) | Registers agent on-chain, enables agent-to-agent communication |
-| Skill distribution | OpenClaw / ClawHub | Publishes skill file so AI assistants can discover and use the agent |
-| Skill publishing CI | `skill-publish` GitHub Action | Automates publishing from repo to both ClawHub and HOL Registry |
-
-**Dependencies:**
-- Requires Milestone 1 complete (Hedera EVM parity — contract deploy/call working).
-- Requires Hedera account + keys provisioned.
-- Requires HOL Registry Broker API key.
-- Optional: OpenAI API key for LangChain-powered reasoning.
-
-### Milestone 3 — Optional Hedera-native Optimization (4–8+ weeks)
-- HTS-focused redesign feasibility and pilot.
+| Task | Details |
+|------|---------|
+| Final dry run | Fresh deploy → full agent lifecycle |
+| Record demo video | Screen recording of `demo-bot.js` on Hedera Testnet |
+| Write demo summary | 1-page doc: what was shown, contract addresses, tx hashes |
+| Commit + push | All changes committed, clean repo |
+| Prepare Q&A notes | Common questions: costs, mainnet readiness, HTS migration path |
 
 ---
 
-## 13) Acceptance Criteria (Go-Live Checklist)
+## 4) Key Technical Decisions
 
-- [ ] Core lifecycle parity verified on Redbelly and Hedera.
-- [ ] API persistence and idempotency validated.
-- [ ] AI agent registered on HOL Registry (HCS-10) and skill published to ClawHub.
-- [ ] Agent-to-agent communication tested on Hedera testnet.
-- [ ] Security checks and static analysis pass.
-- [ ] Monitoring/alerting operational.
-- [ ] Deployment + rollback rehearsed.
-- [ ] Documentation/runbooks approved.
-- [ ] Stakeholder sign-off complete.
+### 4.1 Hardhat 2 over Truffle (and over Hardhat 3)
+
+| Factor | Decision |
+|--------|----------|
+| Truffle sunset (Sept 2023) | Hardhat is the industry standard and actively maintained |
+| Hedera docs/examples | All use Hardhat |
+| Plugin ecosystem | `hardhat-verify`, gas reporter, coverage tools |
+| Test compatibility | Same Mocha/Chai — full ethers.js v6 rewrite done |
+| **Hardhat 2 vs 3** | Hardhat 3 requires ESM + Node 22.10+; project is CommonJS — chose Hardhat 2.28.6 |
+
+### 4.2 Hedera JSON-RPC Relay (Hashio)
+
+Hedera's Hashio provides a standard Ethereum JSON-RPC interface. Our existing Solidity contracts and web3.js calls work as-is — no Hedera SDK needed for Phase 1.
+
+| RPC Method | Hardhat Network | Hedera (Hashio) |
+|------------|-----------------|-----------------|
+| `eth_sendTransaction` | ✅ | ✅ |
+| `eth_call` | ✅ | ✅ |
+| `eth_getTransactionReceipt` | ✅ | ✅ (slower finality) |
+| `evm_increaseTime` | ✅ | ❌ Not supported |
+| `evm_mine` | ✅ | ❌ Not supported |
+
+### 4.3 Time-travel workaround
+
+`evm_increaseTime` doesn't exist on Hedera. For the testnet demo:
+- Deploy with a **short maturity** (60–120 seconds in the future).
+- Wait real-time for maturity before calling `redeemMaturity()`.
+- The API detects the network and either time-travels (local) or waits (testnet).
 
 ---
 
-## 14) Immediate Next Actions (No code changes yet)
+## 5) Test Suite Migration (Truffle → Hardhat) ✅ COMPLETED
 
-1. Confirm Path A scope and target Hedera environment(s).
-2. Approve adapter interface and status model.
-3. Approve test gating policy (Ganache + Hedera + parity).
-4. Obtain HOL Registry Broker API key and Hedera testnet credentials for Milestone 2.5.
-5. Start implementation in a dedicated migration branch with milestone tracking.
+All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
+
+### 5.1 Truffle APIs replaced
+
+| Truffle API | Hardhat Replacement | Status |
+|-------------|---------------------|--------|
+| `artifacts.require("Name")` | `ethers.getContractFactory("Name")` | ✅ Done |
+| `contract("desc", (accounts) => {})` | `describe("desc", function() {})` + `ethers.getSigners()` | ✅ Done |
+| `web3.utils.toWei / fromWei / toBN` | `ethers.parseEther()` / `ethers.formatEther()` / `BigInt` | ✅ Done |
+| `expectRevert(promise, "msg")` | `await expect(promise).to.be.revertedWith("msg")` | ✅ Done |
+| `expectRevert.unspecified(promise)` | `await expect(promise).to.be.reverted` | ✅ Done |
+| `new BN(x).sub(new BN(y))` | `BigInt(x) - BigInt(y)` (ethers v6 returns native BigInt) | ✅ Done |
+| `{ from: address }` tx options | `contract.connect(signer).method()` | ✅ Done |
+| `contract.address` | `await contract.getAddress()` | ✅ Done |
+
+### 5.2 Dependencies swapped
+
+| Removed | Added |
+|---------|-------|
+| `truffle@^5.11.5` | `hardhat@^2.28.6` |
+| `@openzeppelin/test-helpers@^0.5.16` | `@nomicfoundation/hardhat-toolbox@^5.0.0` (includes ethers, chai-matchers, etc.) |
+| — | `dotenv@^17.3.1` |
+
+**Kept:** `web3@^4.16.0` (for `mock-api.js` runtime), `@openzeppelin/contracts@^5.4.0`, `express@^4.18.2`, `node-fetch@^2.6.7`
+
+### 5.3 Per-file migration checklist
+
+#### `01-annuity.flow.test.js` (lifecycle + secondary trading)
+- [x] `artifacts.require` → `ethers.getContractFactory` + `.deploy()`
+- [x] `contract()` → `describe()` + `const [issuer, investor, secondary] = await ethers.getSigners()`
+- [x] `web3.utils.toWei("1000", "ether")` → `ethers.parseEther("1000")`
+- [x] `web3.utils.fromWei(bal, "ether")` → comparison via `ethers.parseEther()` (BigInt equality)
+- [x] `web3.utils.toBN()` → native `BigInt` arithmetic
+- [x] `{ from: investor }` → `contract.connect(investorSigner).method()`
+- [x] `assert.equal` → `expect().to.equal()` (chai)
+- [x] `stablecoin.address` → `await stablecoin.getAddress()`
+
+#### `02-annuity.payments.test.js` (coupon payments)
+- [x] Same base changes as 01
+- [x] `expectRevert(promise, "msg")` → `await expect(promise).to.be.revertedWith("msg")`
+
+#### `03-annuity.transfer.test.js` (secondary transfers)
+- [x] Same base changes as 01
+- [x] `expectRevert.unspecified(promise)` → `await expect(promise).to.be.reverted`
+- [x] `expectRevert(promise, "msg")` → `await expect(promise).to.be.revertedWith("msg")`
+- [x] Zero address: `"0x000..."` → `ethers.ZeroAddress`
+
+#### `04-annuity.security.test.js` (access control)
+- [x] Same base changes as 01
+- [x] `expectRevert` — 2 instances converted
+
+#### `05-annuity.reentrancy.test.js` (reentrancy guard)
+- [x] `BN` arithmetic → native `BigInt` (`issuerBalAfter - issuerBalBefore`)
+- [x] `MaliciousERC20 = artifacts.require("MaliciousStablecoin")` → `ethers.getContractFactory`
+- [x] `assert` → `expect` (chai)
+
+#### `06-smoke.fullcycle.test.js` (API smoke + agent parser)
+- [x] `contract()` → `describe()` (function form for Mocha `this`)
+- [x] Added `const { assert } = require('chai')` for explicit assert import
+- [x] Updated header comment (Hardhat node reference)
+
+#### `01-annuity.api.flow.test.js` (API integration)
+- [x] `contract()` → `describe()`
+- [x] Fixed `http://localhost:4000` → `http://127.0.0.1:4000` (4 instances)
+- [x] Added `const { assert } = require('chai')`
+
+#### `demo-bot.js` (visual demo)
+- [x] No changes needed — uses `child_process.spawn` only
+
+### 5.4 Migration approach decision
+
+| Approach | Effort | Outcome |
+|----------|--------|---------|
+| ~~**hardhat-web3 plugin**~~ | N/A | ❌ Rejected — `@nomiclabs/hardhat-web3` targets web3 v1.x, incompatible with project's web3 v4 |
+| **Full ethers.js v6 rewrite** | ~2 hours | ✅ Chosen — clean, modern, all 10 tests pass |
 
 ---
 
-## Appendix A — Contract Functions to Preserve (Behavioral Parity)
+## 6) File Changes Summary
+
+| File | Action | Day |
+|------|--------|-----|
+| `hardhat.config.js` | **Created** — Solidity 0.8.21, Hardhat Network + localhost, Mocha config | 1 |
+| `scripts/deploy.js` | **Created** — Hardhat deploy script (ethers.js) | 1 |
+| `.env.example` | **Created** — Template for Hedera credentials | 1 |
+| `.gitignore` | **Updated** — Added cache/, artifacts/, .env, .DS_Store | 1 |
+| `package.json` | **Modified** — Swapped deps (truffle→hardhat), added npm scripts | 1 |
+| `mocks/mock-api.js` | **Modified** — ABI paths: `build/contracts/` → `artifacts/contracts/*.sol/` | 1 |
+| `start.sh` | **Modified** — Ganache → Hardhat node, truffle migrate → hardhat run | 1 |
+| `test/annuity/01-annuity.flow.test.js` | **Rewritten** — Truffle → ethers.js v6 | 1 |
+| `test/annuity/02-annuity.payments.test.js` | **Rewritten** — Truffle → ethers.js v6 | 1 |
+| `test/annuity/03-annuity.transfer.test.js` | **Rewritten** — Truffle → ethers.js v6 | 1 |
+| `test/annuity/04-annuity.security.test.js` | **Rewritten** — Truffle → ethers.js v6 | 1 |
+| `test/annuity/05-annuity.reentrancy.test.js` | **Rewritten** — Truffle → ethers.js v6 | 1 |
+| `test/annuity/06-smoke.fullcycle.test.js` | **Modified** — `contract()` → `describe()`, added chai assert | 1 |
+| `test/annuity/01-annuity.api.flow.test.js` | **Modified** — `contract()` → `describe()`, fixed localhost | 1 |
+| `truffle-config.js` | **Deleted** | 1 |
+| `migrations/` | **Deleted** | 1 |
+| `build/` | **Deleted** (Truffle artifacts) | 1 |
+| `config/networks.js` | **Create** — Network config loader | 3 |
+| `deployments/hedera-testnet.json` | **Create** — Deployed addresses | 2 |
+| `agent/cli-agent.js` | **Modify** — Minor: HashScan links in output | 4 |
+| `test/annuity/demo-bot.js` | **Modify** — Longer timeouts for testnet | 4 |
+
+---
+
+## 7) Risks & Mitigations
+
+| Risk | Impact | Mitigation | Status |
+|------|--------|------------|--------|
+| Hardhat migration breaks existing tests | Blocks progress | Run tests after each change, keep Ganache as fallback | ✅ Mitigated — all 10 tests pass |
+| Hedera gas costs differ from Ganache estimates | Deploy may fail | Use generous gas limits, check Hashio docs | Pending (Day 2) |
+| Finality delay (3-5s per tx) | Demo feels slow | Set expectations, show HashScan confirmation | Pending (Day 3) |
+| No `evm_increaseTime` on testnet | Can't redeem with long maturity | Deploy with 60-120s maturity for demo | Pending (Day 3) |
+| Testnet faucet limits | Can't fund wallets | Request HBAR early, reuse accounts | Pending (Day 2) |
+
+---
+
+## 8) Future Milestones (post-demo)
+
+| Milestone | Timeline | Scope |
+|-----------|----------|-------|
+| **Production Hardening** | 3-6 weeks | DB persistence, idempotency, observability, security |
+| **HOL Registry Broker Agent** | 2-4 weeks | HCS-10 agent registration, agent-to-agent communication, ClawHub skill publishing |
+| **Hedera-Native Optimization** | 4-8 weeks | Evaluate HTS token migration, SDK-based flows |
+| **Mainnet Deployment** | TBD | After production hardening + security audit |
+
+---
+
+## 9) Contract Functions (Parity Reference)
 
 | Function | Type | Approval Required | Notes |
 |----------|------|-------------------|-------|
-| `acceptAndIssue(address _investor)` | State-changing | Investor approves faceValue | Pulls faceValue via `safeTransferFrom` |
-| `payCoupon(uint256 index)` | State-changing | Issuer approves coupon amount | Pulls coupon via `safeTransferFrom` |
-| `transferAnnuity(address newOwner, uint256 price)` | State-changing | Buyer approves price | Pulls price via `safeTransferFrom` |
-| `redeemMaturity()` | State-changing | None | Direct `safeTransfer` from issuer |
-| `issued()` | View (getter) | — | Boolean |
-| `expired()` | View (getter) | — | Boolean |
-| `couponDates(uint256)` | View (getter) | — | Array element |
-| `couponValues(uint256)` | View (getter) | — | Array element |
+| `acceptAndIssue(address)` | State-changing | Investor approves faceValue | `safeTransferFrom` |
+| `payCoupon(uint256)` | State-changing | Issuer approves coupon | `safeTransferFrom` |
+| `transferAnnuity(address, uint256)` | State-changing | Buyer approves price | `safeTransferFrom` |
+| `redeemMaturity()` | State-changing | None | `safeTransfer` from contract |
+| `issued()`, `expired()` | View | — | Boolean getters |
+| `couponDates(uint256)`, `couponValues(uint256)` | View | — | Array getters |
 | `isCouponPaid(uint256)` | View | — | Mapping lookup |
 | `getCouponCount()` | View | — | Array length |
-
-These functions define the minimum parity surface for Redbelly ↔ Hedera replication.

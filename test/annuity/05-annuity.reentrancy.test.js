@@ -1,70 +1,72 @@
-const { BN, expectRevert } = require("@openzeppelin/test-helpers");
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
 
-const AnnuityToken = artifacts.require("AnnuityToken");
-const MaliciousERC20 = artifacts.require("MaliciousStablecoin");
-
-contract("AnnuityToken Reentrancy Protection", (accounts) => {
-  const [annuityIssuer, attacker, other] = accounts;
-
+describe("AnnuityToken Reentrancy Protection", function () {
+  let annuityIssuer, attacker, other;
   let annuity, token;
-  const faceValue = web3.utils.toWei("1000", "ether");
+  const faceValue = ethers.parseEther("1000");
 
-  beforeEach(async () => {
+  beforeEach(async function () {
+    [annuityIssuer, attacker, other] = await ethers.getSigners();
+
     // Deploy malicious token
-    token = await MaliciousERC20.new({ from: other });
+    const MaliciousERC20 = await ethers.getContractFactory("MaliciousStablecoin", other);
+    token = await MaliciousERC20.deploy();
+    await token.waitForDeployment();
 
     // Mint faceValue to attacker
-    await token.mint(attacker, faceValue, { from: other });
+    await token.connect(other).mint(attacker.address, faceValue);
 
     // Deploy AnnuityToken
     const startDate = Math.floor(Date.now() / 1000);
     const maturityDate = startDate + 365 * 24 * 60 * 60; // 1 year
 
-    annuity = await AnnuityToken.new(
-      annuityIssuer, // issuer
+    const AnnuityToken = await ethers.getContractFactory("AnnuityToken", annuityIssuer);
+    annuity = await AnnuityToken.deploy(
+      annuityIssuer.address, // issuer
       startDate,
       maturityDate,
       faceValue,
       0, // interestRate
       [], // couponDates
       [], // couponValues
-      token.address,
-      { from: annuityIssuer }
+      await token.getAddress()
     );
+    await annuity.waitForDeployment();
 
     // Approve annuity contract to spend attacker's tokens
-    await token.approve(annuity.address, faceValue, { from: attacker });
+    await token.connect(attacker).approve(await annuity.getAddress(), faceValue);
 
     // Configure malicious token to attack the annuity
-    await token.setVictim(annuity.address, { from: other });
-    await token.setAttacker(attacker, { from: other });
+    await token.connect(other).setVictim(await annuity.getAddress());
+    await token.connect(other).setAttacker(attacker.address);
   });
 
-  it("should block reentrancy: acceptAndIssue cannot be called twice", async () => {
+  it("should block reentrancy: acceptAndIssue cannot be called twice", async function () {
     // Capture balances before
-    const issuerBalBefore = await token.balanceOf(annuityIssuer);
-    const attackerBalBefore = await token.balanceOf(attacker);
+    const issuerBalBefore = await token.balanceOf(annuityIssuer.address);
+    const attackerBalBefore = await token.balanceOf(attacker.address);
 
     // Attempt to acceptAndIssue: malicious token will try re-entry
-    await annuity.acceptAndIssue(attacker, { from: attacker });
+    await annuity.connect(attacker).acceptAndIssue(attacker.address);
 
     // Check contract state
     const issued = await annuity.issued();
     const currentOwner = await annuity.currentOwner();
-    assert.equal(issued, true, "Annuity should be marked as issued");
-    assert.equal(currentOwner, attacker, "Attacker should be currentOwner");
+    expect(issued).to.equal(true, "Annuity should be marked as issued");
+    expect(currentOwner).to.equal(attacker.address, "Attacker should be currentOwner");
 
-    // Balances should reflect **single transfer** only
-    const issuerBalAfter = await token.balanceOf(annuityIssuer);
-    const attackerBalAfter = await token.balanceOf(attacker);
+    // Balances should reflect single transfer only
+    const issuerBalAfter = await token.balanceOf(annuityIssuer.address);
+    const attackerBalAfter = await token.balanceOf(attacker.address);
 
-    const issuerDelta = new BN(issuerBalAfter).sub(new BN(issuerBalBefore));
-    const attackerDelta = new BN(attackerBalBefore).sub(new BN(attackerBalAfter));
+    const issuerDelta = issuerBalAfter - issuerBalBefore;
+    const attackerDelta = attackerBalBefore - attackerBalAfter;
 
-    assert(issuerDelta.eq(new BN(faceValue)), "Issuer should receive exactly faceValue once");
-    assert(attackerDelta.eq(new BN(faceValue)), "Attacker should pay exactly faceValue once");
+    expect(issuerDelta).to.equal(faceValue, "Issuer should receive exactly faceValue once");
+    expect(attackerDelta).to.equal(faceValue, "Attacker should pay exactly faceValue once");
 
     // If reentrancy succeeded, balances would double (failing this assertion)
-    assert(!issuerDelta.eq(new BN(faceValue).mul(new BN(2))), "Reentrancy did not occur");
+    expect(issuerDelta).to.not.equal(faceValue * 2n, "Reentrancy did not occur");
   });
 });

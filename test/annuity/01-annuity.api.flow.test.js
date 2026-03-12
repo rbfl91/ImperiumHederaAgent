@@ -1,8 +1,8 @@
-
+const { assert } = require('chai');
 const fetch = require('node-fetch');
 
-contract('Annuity API Gateway Integration', () => {
-  it('submits, executes, and checks a deal via the API', async () => {
+describe('Annuity API Gateway Integration', function () {
+  it('submits, executes, and checks a deal via the API', async function () {
     // 1. Submit a deal
     const correlationId = 'ABCD-4007';
     const payload = {
@@ -45,7 +45,7 @@ contract('Annuity API Gateway Integration', () => {
     };
 
     // POST /deal
-    const submitRes = await fetch('http://localhost:4000/deal', {
+    const submitRes = await fetch('http://127.0.0.1:4000/deal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -55,13 +55,13 @@ contract('Annuity API Gateway Integration', () => {
     assert.equal(submitData.status, 'created', 'Deal status is created');
 
     // 2. GET /deal/:correlationId
-    const statusRes = await fetch(`http://localhost:4000/deal/${correlationId}`);
+    const statusRes = await fetch(`http://127.0.0.1:4000/deal/${correlationId}`);
     const statusData = await statusRes.json();
     assert.equal(statusData.status, 'created', 'Deal status is still created');
     assert.ok(statusData.annuityAddress, 'Annuity contract deployed');
 
     // 3. POST /deal/:correlationId/execute
-    const execRes = await fetch(`http://localhost:4000/deal/${correlationId}/execute`, {
+    const execRes = await fetch(`http://127.0.0.1:4000/deal/${correlationId}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -72,7 +72,7 @@ contract('Annuity API Gateway Integration', () => {
     assert.equal(execData.status, 'executed', 'Deal executed');
 
     // 4. GET /deal/:correlationId (after execution)
-    const finalRes = await fetch(`http://localhost:4000/deal/${correlationId}`);
+    const finalRes = await fetch(`http://127.0.0.1:4000/deal/${correlationId}`);
     const finalData = await finalRes.json();
     assert.equal(finalData.status, 'executed', 'Deal status is executed');
     assert.equal(finalData.contractState.issued, true, 'Annuity issued');

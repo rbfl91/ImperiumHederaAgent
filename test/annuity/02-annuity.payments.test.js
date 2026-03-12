@@ -1,82 +1,89 @@
-const { expectRevert } = require("@openzeppelin/test-helpers");
-const MockStablecoin = artifacts.require("MockStablecoin");
-const AnnuityToken = artifacts.require("AnnuityToken");
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
 
-contract("AnnuityToken - coupon payments", (accounts) => {
-  const [issuer, investor] = accounts;
+describe("AnnuityToken - coupon payments", function () {
+  let issuer, investor;
 
-  it("should prevent paying the same coupon twice", async () => {
+  before(async function () {
+    [issuer, investor] = await ethers.getSigners();
+  });
+
+  it("should prevent paying the same coupon twice", async function () {
     // Deploy mock stablecoin
-    const stablecoin = await MockStablecoin.new({ from: issuer });
-    await stablecoin.transfer(investor, web3.utils.toWei("2000", "ether"), { from: issuer });
+    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", issuer);
+    const stablecoin = await MockStablecoin.deploy();
+    await stablecoin.waitForDeployment();
+    await stablecoin.connect(issuer).transfer(investor.address, ethers.parseEther("2000"));
 
     // Define annuity parameters with one coupon
     const startDate = Math.floor(Date.now() / 1000);
     const maturityDate = startDate + 365 * 24 * 60 * 60;
-    const faceValue = web3.utils.toWei("1000", "ether");
-    const couponValue = web3.utils.toWei("100", "ether");
+    const faceValue = ethers.parseEther("1000");
+    const couponValue = ethers.parseEther("100");
 
-    const annuity = await AnnuityToken.new(
-      issuer,
+    const AnnuityToken = await ethers.getContractFactory("AnnuityToken", issuer);
+    const annuity = await AnnuityToken.deploy(
+      issuer.address,
       startDate,
       maturityDate,
       faceValue,
       500,
       [startDate + 30 * 24 * 60 * 60],
       [couponValue],
-      stablecoin.address,
-      { from: issuer }
+      await stablecoin.getAddress()
     );
+    await annuity.waitForDeployment();
 
     // Investor accepts annuity
-    await stablecoin.approve(annuity.address, faceValue, { from: investor });
-    await annuity.acceptAndIssue(investor, { from: investor });
+    await stablecoin.connect(investor).approve(await annuity.getAddress(), faceValue);
+    await annuity.connect(investor).acceptAndIssue(investor.address);
 
     // Issuer approves enough stablecoins for coupon payments
-    await stablecoin.approve(annuity.address, couponValue, { from: issuer });
+    await stablecoin.connect(issuer).approve(await annuity.getAddress(), couponValue);
 
     // First payment succeeds
-    await annuity.payCoupon(0, { from: issuer });
+    await annuity.connect(issuer).payCoupon(0);
 
     // Second payment of same coupon should revert
-    await expectRevert(
-      annuity.payCoupon(0, { from: issuer }),
-      "Coupon already paid"
-    );
+    await expect(
+      annuity.connect(issuer).payCoupon(0)
+    ).to.be.revertedWith("Coupon already paid");
   });
 
-  it("should revert if coupon index is invalid", async () => {
+  it("should revert if coupon index is invalid", async function () {
     // Deploy mock stablecoin
-    const stablecoin = await MockStablecoin.new({ from: issuer });
-    await stablecoin.transfer(investor, web3.utils.toWei("2000", "ether"), { from: issuer });
+    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", issuer);
+    const stablecoin = await MockStablecoin.deploy();
+    await stablecoin.waitForDeployment();
+    await stablecoin.connect(issuer).transfer(investor.address, ethers.parseEther("2000"));
 
     // Define annuity with only one coupon
     const startDate = Math.floor(Date.now() / 1000);
     const maturityDate = startDate + 365 * 24 * 60 * 60;
-    const faceValue = web3.utils.toWei("1000", "ether");
-    const couponValue = web3.utils.toWei("100", "ether");
+    const faceValue = ethers.parseEther("1000");
+    const couponValue = ethers.parseEther("100");
 
-    const annuity = await AnnuityToken.new(
-      issuer,
+    const AnnuityToken = await ethers.getContractFactory("AnnuityToken", issuer);
+    const annuity = await AnnuityToken.deploy(
+      issuer.address,
       startDate,
       maturityDate,
       faceValue,
       500,
       [startDate + 30 * 24 * 60 * 60],
       [couponValue],
-      stablecoin.address,
-      { from: issuer }
+      await stablecoin.getAddress()
     );
+    await annuity.waitForDeployment();
 
-    await stablecoin.approve(annuity.address, faceValue, { from: investor });
-    await annuity.acceptAndIssue(investor, { from: investor });
+    await stablecoin.connect(investor).approve(await annuity.getAddress(), faceValue);
+    await annuity.connect(investor).acceptAndIssue(investor.address);
 
-    await stablecoin.approve(annuity.address, couponValue, { from: issuer });
+    await stablecoin.connect(issuer).approve(await annuity.getAddress(), couponValue);
 
     // Invalid index (1) should revert
-    await expectRevert(
-      annuity.payCoupon(1, { from: issuer }),
-      "Invalid coupon index"
-    );
+    await expect(
+      annuity.connect(issuer).payCoupon(1)
+    ).to.be.revertedWith("Invalid coupon index");
   });
 });

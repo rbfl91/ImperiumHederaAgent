@@ -1,65 +1,69 @@
-const { expectEvent, BN, expectRevert } = require("@openzeppelin/test-helpers");
-const MockStablecoin = artifacts.require("MockStablecoin");
-const AnnuityToken = artifacts.require("AnnuityToken");
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
 
-contract("AnnuityToken - secondary transfers", (accounts) => {
-  const [issuer, investor, secondary, attacker] = accounts;
+describe("AnnuityToken - secondary transfers", function () {
+  let issuer, investor, secondary, attacker;
+
+  before(async function () {
+    [issuer, investor, secondary, attacker] = await ethers.getSigners();
+  });
 
   async function deployAndIssueAnnuity() {
-    const stablecoin = await MockStablecoin.new({ from: issuer });
-    await stablecoin.transfer(investor, web3.utils.toWei("2000", "ether"), { from: issuer });
-    await stablecoin.transfer(secondary, web3.utils.toWei("500", "ether"), { from: issuer });
+    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", issuer);
+    const stablecoin = await MockStablecoin.deploy();
+    await stablecoin.waitForDeployment();
+    await stablecoin.connect(issuer).transfer(investor.address, ethers.parseEther("2000"));
+    await stablecoin.connect(issuer).transfer(secondary.address, ethers.parseEther("500"));
 
     const startDate = Math.floor(Date.now() / 1000);
     const maturityDate = startDate + 365 * 24 * 60 * 60;
-    const faceValue = web3.utils.toWei("1000", "ether");
+    const faceValue = ethers.parseEther("1000");
 
-    const annuity = await AnnuityToken.new(
-      issuer,
+    const AnnuityToken = await ethers.getContractFactory("AnnuityToken", issuer);
+    const annuity = await AnnuityToken.deploy(
+      issuer.address,
       startDate,
       maturityDate,
       faceValue,
       500,
       [startDate + 30 * 24 * 60 * 60],
-      [web3.utils.toWei("100", "ether")],
-      stablecoin.address,
-      { from: issuer }
+      [ethers.parseEther("100")],
+      await stablecoin.getAddress()
     );
+    await annuity.waitForDeployment();
 
-    await stablecoin.approve(annuity.address, faceValue, { from: investor });
-    await annuity.acceptAndIssue(investor, { from: investor });
+    await stablecoin.connect(investor).approve(await annuity.getAddress(), faceValue);
+    await annuity.connect(investor).acceptAndIssue(investor.address);
 
     return { stablecoin, annuity, faceValue };
   }
 
-  it("should revert if buyer has not approved enough stablecoins", async () => {
+  it("should revert if buyer has not approved enough stablecoins", async function () {
     const { stablecoin, annuity } = await deployAndIssueAnnuity();
 
-    const salePrice = web3.utils.toWei("800", "ether");
+    const salePrice = ethers.parseEther("800");
     // Approve less than sale price
-    await stablecoin.approve(annuity.address, web3.utils.toWei("500", "ether"), { from: secondary });
+    await stablecoin.connect(secondary).approve(await annuity.getAddress(), ethers.parseEther("500"));
 
-    // Match the **actual low-level revert** from ERC20 transferFrom
-    await expectRevert.unspecified(
-      annuity.transferAnnuity(secondary, salePrice, { from: investor })
-    );
+    // Match the actual low-level revert from ERC20 transferFrom
+    await expect(
+      annuity.connect(investor).transferAnnuity(secondary.address, salePrice)
+    ).to.be.reverted;
   });
 
-  it("should prevent transfer initiated by non-owner", async () => {
+  it("should prevent transfer initiated by non-owner", async function () {
     const { annuity, faceValue } = await deployAndIssueAnnuity();
 
-    await expectRevert(
-      annuity.transferAnnuity(secondary, faceValue, { from: attacker }),
-      "Only current owner can initiate transfer"
-    );
+    await expect(
+      annuity.connect(attacker).transferAnnuity(secondary.address, faceValue)
+    ).to.be.revertedWith("Only current owner can initiate transfer");
   });
 
-  it("should prevent transfer to zero address", async () => {
+  it("should prevent transfer to zero address", async function () {
     const { annuity, faceValue } = await deployAndIssueAnnuity();
 
-    await expectRevert(
-      annuity.transferAnnuity("0x0000000000000000000000000000000000000000", faceValue, { from: investor }),
-      "Invalid new owner"
-    );
+    await expect(
+      annuity.connect(investor).transferAnnuity(ethers.ZeroAddress, faceValue)
+    ).to.be.revertedWith("Invalid new owner");
   });
 });
