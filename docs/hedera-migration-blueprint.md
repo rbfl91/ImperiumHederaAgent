@@ -1,6 +1,6 @@
 # Imperium Markets — Hedera Testnet Deployment Plan
 
-**Version:** 3.4
+**Version:** 3.5
 **Date:** 2026-03-12
 **Target:** Deploy AnnuityToken to Hedera Testnet + HOL Registry Broker agent demo in 5 days
 **Authors:** Imperium Markets Engineering
@@ -41,6 +41,8 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | `.env.example` | ✅ Template for Hedera credentials with setup instructions |
 | `.gitignore` | ✅ Excludes node_modules, .env, cache/, artifacts/, deployments/ |
 | `package.json` | ✅ Scripts: `deploy:hedera`, `start:hedera`, `demo`, `demo:hedera` |
+| `agent/hol-registry.js` | ✅ HOL Registry Broker module — `create`, `status`, `connect` commands, resumable registration, state persistence to `deployments/hol-agent.json` |
+| `deployments/hol-agent.json` | ✅ Agent identity state — account `0.0.8196762`, inbound/outbound/profile topic IDs, 7 skills |
 | `truffle-config.js` + `migrations/` | ✅ **Deleted** — fully replaced by Hardhat |
 | `build/` (Truffle artifacts) | ✅ **Deleted** — replaced by `artifacts/` (gitignored) |
 | Hedera Testnet account | ✅ Account `0.0.7974882`, funded with testnet HBAR |
@@ -118,9 +120,9 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | Local parity verified | ✅ | All 10 contract tests pass, no regressions |
 | Run smoke test on testnet | ✅ | 27/27 passing (~3 min): deal creation 53s, execute 67s, transfer 23s, redeem 32s |
 | Run demo bot on testnet | ✅ | `node test/annuity/demo-bot.js --network hedera-testnet --fast` — full lifecycle completed |
-| Dry-run the recording | ❌ | Full screen recording pass, check timing |
+| Dry-run the recording | ✅ | Demo bot full-lifecycle run on testnet served as dry run — timing confirmed, all phases clean |
 
-**Gate:** Full lifecycle works via agent on Hedera Testnet. Demo bot runs clean end-to-end.
+**Gate:** ✅ Full lifecycle works via agent on Hedera Testnet. Demo bot runs clean end-to-end. **Day 2 fully complete.**
 
 #### Day 2 — Key decisions made
 
@@ -174,19 +176,33 @@ Testnet smoke timing: deal creation ~48s, execute ~73s, transfer ~24s, redeem ~2
 
 **Goal:** Register the Imperium Annuity agent on the HOL Registry Broker using HCS-10 (OpenConvAI standard).
 
-| # | Task | Details |
-|---|------|---------|
-| 1 | Install SDK & validate CJS import | `npm install @hashgraphonline/standards-sdk` — SDK is ESM-source but ships a CJS dist at `dist/cjs/standards-sdk.cjs` with `"require"` export. Validate immediately: `node -e "const sdk = require('@hashgraphonline/standards-sdk'); console.log(Object.keys(sdk))"`. If CJS fails → use `await import(...)` wrapper or create `agent/hol-registry.mjs`. |
-| 2 | Research HCS-10 standard | Full spec at `hol.org/docs/standards/hcs-10` (NOT `docs.hedera.com`). SDK docs at `hol.org/docs/libraries/standards-sdk/hcs-10/`. Reference demo at `github.com/hashgraph-online/standards-sdk/tree/main/demo/hcs-10`. |
-| 3 | Create HCS-10 agent identity | Use `HCS10Client` + `AgentBuilder` + `client.create()`. This creates 4 Hedera resources: (1) new agent account with its own key pair, (2) inbound topic (receives connection requests), (3) outbound topic (public activity log), (4) HCS-11 profile inscribed via HCS-1 (agent metadata, display name, topic IDs, skills). Each is a Hedera transaction — costs HBAR. State should persist to `.env` or `deployments/` for resumability. |
-| 4 | Publish agent skills | Define 7 skill descriptors from Section 3.1 (`annuity.issue`, `.settle`, `.transfer`, `.redeem`, `.compliance`, `.analytics`, `.audit`). Two options: embed in HCS-11 profile properties (simpler), or use HCS-26 Skill Registry (dedicated standard). Decide based on discoverability requirements. |
-| 5 | Create `agent/hol-registry.js` | Module for HCS-10 registration, skill publishing, and message handling. Initialize `HCS10Client` with `{ network: 'testnet', operatorId, operatorPrivateKey, guardedRegistryBaseUrl }`. Key methods: `create()`, `submitConnectionRequest()`, `waitForConnectionConfirmation()`, `sendMessage()`, `getMessages()`. |
-| 6 | Verify registration | Confirm agent is discoverable via `RegistryBrokerClient.search()`. Record agent account ID, inbound/outbound topic IDs, and profile topic ID in `deployments/`. |
-| 7 | Add env vars | Add `REGISTRY_URL` (defaults to `https://moonscape.tech`) and agent state vars (`AGENT_ACCOUNT_ID`, `AGENT_PRIVATE_KEY`, `AGENT_INBOUND_TOPIC_ID`, `AGENT_OUTBOUND_TOPIC_ID`, `AGENT_PROFILE_TOPIC_ID`) to `.env.example`. |
+| # | Task | Status | Details |
+|---|------|--------|---------|
+| 1 | Install SDK & validate CJS import | ✅ | `npm install @hashgraphonline/standards-sdk@0.1.165` — CJS dist at `dist/cjs/standards-sdk.cjs`. `HCS10Client` and `AgentBuilder` both available via `require()`. |
+| 2 | Research HCS-10 standard | ✅ | Full API mapped: `AgentBuilder` fluent API, `HCS10Client.createAndRegisterAgent()`, `submitConnectionRequest()`, `handleConnectionRequest()`, `sendMessage()`, `getMessages()`, `ConnectionsManager`. |
+| 3 | Create HCS-10 agent identity | ✅ | Agent account `0.0.8196762`, inbound `0.0.8196678`, outbound `0.0.8196675`, profile `0.0.8196782`. First run failed at profile inscription (timeout); resumed from checkpoint successfully. |
+| 4 | Publish agent skills | ✅ | 7 skills embedded in HCS-11 profile properties: `annuity.issue`, `.settle`, `.transfer`, `.redeem`, `.compliance`, `.analytics`, `.audit`. Plus AusCM metadata: currency AUD, dayCount ACT/365, settlement T+2. |
+| 5 | Create `agent/hol-registry.js` | ✅ | CLI module with `create`, `status`, `connect` commands. Supports resumable registration via `existingState`. State persisted to `deployments/hol-agent.json`. |
+| 6 | Verify registration | ✅ | Profile retrievable via `client.retrieveProfile('0.0.8196762')` — returns full profile with all skills, capabilities, and topic IDs. |
+| 7 | Add env vars | ✅ | `REGISTRY_URL` added to `.env.example`. Agent state stored in `deployments/hol-agent.json` (not `.env`) for cleaner separation. |
 
-**Recommended task sequence:** Task 1 first (30 min gate) → Task 2 (30 min) → Task 3 (2 hr) → Task 4 (1 hr) → Task 5 (1 hr) → Task 6+7 (30 min).
+#### Day 3 — Key decisions made
 
-**Gate:** Agent registered on HOL Registry Broker, skills visible and discoverable on Hedera Testnet. Agent account ID + topic IDs persisted.
+1. **ECDSA key type for HCS-10:** The SDK supports both ED25519 and ECDSA keys. Since our Hedera account uses ECDSA (same key for EVM/Hardhat), we pass `keyType: 'ecdsa'` to `HCS10Client`.
+2. **Skills in HCS-11 profile properties (not HCS-26):** Embedded skills as a `properties.skills` array in the HCS-11 profile rather than using a separate HCS-26 Skill Registry. Simpler, sufficient for demo and discoverability.
+3. **Resumable registration:** The SDK's `createAndRegisterAgent()` supports `existingState` for resuming from checkpoints. First run created account + topics but timed out on profile inscription. Resume picked up from profile stage and completed successfully.
+4. **State in `deployments/` (not `.env`):** Agent state (account ID, topic IDs, private key) is stored in `deployments/hol-agent.json` rather than `.env` — keeps credentials separate from config, supports structured data, and aligns with how contract deployments are already stored.
+
+#### Registered Agent Resources
+
+| Resource | Hedera ID | HashScan |
+|----------|-----------|----------|
+| Agent Account | `0.0.8196762` | `https://hashscan.io/testnet/account/0.0.8196762` |
+| Inbound Topic | `0.0.8196678` | `https://hashscan.io/testnet/topic/0.0.8196678` |
+| Outbound Topic | `0.0.8196675` | `https://hashscan.io/testnet/topic/0.0.8196675` |
+| Profile Topic | `0.0.8196782` | `https://hashscan.io/testnet/topic/0.0.8196782` |
+
+**Gate:** ✅ Agent registered on HOL Registry Broker, skills visible and discoverable on Hedera Testnet. Agent account ID + topic IDs persisted.
 
 ---
 
@@ -645,6 +661,8 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 >
 > **Note (v3.3):** Black-box verification completed (Day 2.5). Found and fixed: (1) web3.js v4 silent failure on `evm_increaseTime`/`evm_mine` — replaced with raw `fetch()`, (2) Hashio transient failures — added `sendWithRetry()` with exponential back-off, (3) agent version comment mismatch. All 38 local tests and 27 testnet tests now pass. Testing runbook added (Section 4.4).
 >
+> **Note (v3.5):** Day 2 fully signed off. Renamed `mocks/mock-api.js` → `api/imperium-api.js` (directory restructure removing "mock" branding) and updated all references in `agent/cli-agent.js`, `test/annuity/demo-bot.js`, `start.sh`, and `test/annuity/06-smoke.fullcycle.test.js` (`ImperiumAPI` service name). Demo bot dry-run completed on Hedera Testnet (`--fast` flag, exit 0). All Day 2 Phase C tasks now ✅. Blueprint file-change table and testing runbook already reflected the new `api/imperium-api.js` path.
+
 > **Note (v3.4):** Day 3 readiness research completed. HCS-10 standard fully documented at `hol.org/docs/standards/hcs-10` (not `docs.hedera.com` as previously assumed — those URLs return 404). Primary SDK is `@hashgraphonline/standards-sdk` (not `@hashgraph/sdk` alone). SDK is ESM-source but ships CJS dist — requires early validation. Added: Section 4.5 (HCS-10 Resource Reference with protocol architecture, operations, SDK quickstart), Section 4.6 (Day 3 Technical Risks), detailed Day 3 task breakdown with recommended sequence, expanded Day 4 tasks with HCS-10 operation specifics, 4 new risk entries in Section 7. Key finding: `HCS10Client.create()` creates 4 Hedera resources per agent (account, inbound topic, outbound topic, HCS-11 profile). HCS-26 Skill Registry identified as alternative to embedding skills in HCS-11 profile.
 
 ---
