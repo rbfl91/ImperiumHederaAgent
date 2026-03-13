@@ -5,6 +5,7 @@ const bodyParser = require('body-parser');
 const Web3 = require('web3').default;
 const fs = require('fs');
 const path = require('path');
+const fetch = require('node-fetch');
 const { getNetwork, explorerTxUrl } = require('../config/networks');
 
 const app = express();
@@ -87,6 +88,34 @@ function waitForFinality() {
   return Promise.resolve();
 }
 
+/**
+ * Retry wrapper for web3 transaction sends on flaky RPC relays (e.g. Hashio).
+ * Hashio can sporadically return HTML 503/429 pages instead of JSON-RPC,
+ * which causes web3.js to throw a FetchError. This wrapper retries with
+ * exponential back-off.
+ */
+async function sendWithRetry(txCall, opts, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const receipt = await txCall.send(opts);
+      return receipt;
+    } catch (err) {
+      const isTransient =
+        err.message?.includes('invalid json response') ||
+        err.message?.includes('FetchError') ||
+        err.message?.includes('ECONNRESET') ||
+        err.message?.includes('rate limit');
+      if (isTransient && attempt < retries) {
+        const delay = attempt * 5000; // 5s, 10s, 15s
+        console.log(`  ⚠️  Tx attempt ${attempt}/${retries} failed (${err.message?.slice(0, 60)}), retrying in ${delay / 1000}s...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err; // non-transient or exhausted retries
+    }
+  }
+}
+
 // 1) Submitting a Deal
 app.post('/deal', async (req, res) => {
   try {
@@ -116,9 +145,9 @@ app.post('/deal', async (req, res) => {
     const stablecoinAddress = stablecoinInstance.options.address;
 
     // Transfer funds from deployer to investor & secondary (mock balance)
-    await stablecoinInstance.methods.transfer(investor, faceValue).send({ from: accounts[0] });
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), { from: accounts[0], gas: gasLimit(200000) });
     await waitForFinality();
-    await stablecoinInstance.methods.transfer(secondary, faceValue).send({ from: accounts[0] });
+    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), { from: accounts[0], gas: gasLimit(200000) });
     await waitForFinality();
 
     const now = Math.floor(Date.now() / 1000);
@@ -209,24 +238,24 @@ app.post('/deal/:correlationId/execute', async (req, res) => {
 
     // Approve and accept: Investor must approve transfer of faceValue to issuer
     const faceValueStr = String(deal.faceValue);
-    const approveReceipt = await stablecoin.methods.approve(deal.annuityAddress, faceValueStr).send({ from: deal.investor, gas: gasLimit(200000) });
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, faceValueStr), { from: deal.investor, gas: gasLimit(200000) });
     await waitForFinality();
     txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
 
-    const acceptReceipt = await annuity.methods.acceptAndIssue(deal.investor).send({ from: deal.investor, gas: gasLimit(500000) });
+    const acceptReceipt = await sendWithRetry(annuity.methods.acceptAndIssue(deal.investor), { from: deal.investor, gas: gasLimit(500000) });
     await waitForFinality();
     txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
 
     // Issuer approves coupons (approve annuity contract to spend coupons)
     const totalCoupons = deal.couponValues.reduce((a, b) => a + Number(b), 0);
     const totalCouponsStr = String(totalCoupons);
-    const issuerApprove = await stablecoin.methods.approve(deal.annuityAddress, totalCouponsStr).send({ from: deal.annuityIssuer, gas: gasLimit(200000) });
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, totalCouponsStr), { from: deal.annuityIssuer, gas: gasLimit(200000) });
     await waitForFinality();
     txs.push({ type: 'issuerApproveCoupons', tx: issuerApprove.transactionHash });
 
     // Pay all coupons
     for (let i = 0; i < deal.couponValues.length; i++) {
-      const payReceipt = await annuity.methods.payCoupon(i).send({ from: deal.annuityIssuer, gas: gasLimit(200000) });
+      const payReceipt = await sendWithRetry(annuity.methods.payCoupon(i), { from: deal.annuityIssuer, gas: gasLimit(200000) });
       await waitForFinality();
       txs.push({ type: 'payCoupon', index: i, tx: payReceipt.transactionHash });
     }
@@ -255,13 +284,13 @@ app.post('/deal/:correlationId/transfer', async (req, res) => {
     const txs = [];
 
     // Buyer (newOwner) approves the annuity contract to pull `price`
-    const approveReceipt = await stablecoin.methods.approve(deal.annuityAddress, String(price)).send({ from: newOwner, gas: gasLimit(200000) });
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, String(price)), { from: newOwner, gas: gasLimit(200000) });
     await waitForFinality();
     txs.push({ type: 'buyerApprove', tx: approveReceipt.transactionHash });
 
     // Current owner initiates transfer
     const currentOwner = await annuity.methods.currentOwner().call();
-    const transferReceipt = await annuity.methods.transferAnnuity(newOwner, String(price)).send({ from: currentOwner, gas: gasLimit(500000) });
+    const transferReceipt = await sendWithRetry(annuity.methods.transferAnnuity(newOwner, String(price)), { from: currentOwner, gas: gasLimit(500000) });
     await waitForFinality();
     txs.push({ type: 'transferAnnuity', tx: transferReceipt.transactionHash });
 
@@ -290,26 +319,40 @@ app.post('/deal/:correlationId/redeem', async (req, res) => {
     const contractBalance = await stablecoin.methods.balanceOf(deal.annuityAddress).call();
     if (BigInt(contractBalance) < BigInt(deal.faceValue)) {
       const deficit = BigInt(deal.faceValue) - BigInt(contractBalance);
-      const accounts = await web3.eth.getAccounts();
+      let accounts = await web3.eth.getAccounts();
+      if (accounts.length === 0 && web3.eth.accounts.wallet.length > 0) {
+        accounts = [web3.eth.accounts.wallet[0].address];
+      }
       // Fund the issuer first if needed, then issuer sends to the annuity contract
       const issuerBal = await stablecoin.methods.balanceOf(deal.annuityIssuer).call();
       if (BigInt(issuerBal) < deficit) {
-        await stablecoin.methods.transfer(deal.annuityIssuer, String(deficit)).send({ from: accounts[0], gas: gasLimit(200000) });
+        await sendWithRetry(stablecoin.methods.transfer(deal.annuityIssuer, String(deficit)), { from: accounts[0], gas: gasLimit(200000) });
         await waitForFinality();
       }
-      await stablecoin.methods.transfer(deal.annuityAddress, String(deficit)).send({ from: deal.annuityIssuer, gas: gasLimit(200000) });
+      await sendWithRetry(stablecoin.methods.transfer(deal.annuityAddress, String(deficit)), { from: deal.annuityIssuer, gas: gasLimit(200000) });
       await waitForFinality();
     }
 
     // Time-travel: only on networks that support it (local Hardhat)
+    // Note: web3.js v4's provider.request() does not correctly relay
+    // Hardhat-specific JSON-RPC methods (evm_increaseTime, evm_mine).
+    // We use raw fetch() JSON-RPC calls instead.
     if (NET.supportsTimeTravel) {
       const maturityDate = Number(await annuity.methods.maturityDate().call());
       const currentBlock = await web3.eth.getBlock('latest');
       const currentTime = Number(currentBlock.timestamp);
       if (currentTime < maturityDate) {
         const timeToAdvance = maturityDate - currentTime + 60; // +60s buffer
-        await web3.currentProvider.request({ method: 'evm_increaseTime', params: [timeToAdvance] });
-        await web3.currentProvider.request({ method: 'evm_mine', params: [] });
+        await fetch(NET.rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'evm_increaseTime', params: [timeToAdvance], id: Date.now() }),
+        });
+        await fetch(NET.rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'evm_mine', params: [], id: Date.now() + 1 }),
+        });
         txs.push({ type: 'timeTravel', seconds: timeToAdvance });
       }
     } else {
@@ -324,7 +367,7 @@ app.post('/deal/:correlationId/redeem', async (req, res) => {
       }
     }
 
-    const redeemReceipt = await annuity.methods.redeemMaturity().send({ from: deal.annuityIssuer, gas: gasLimit(500000) });
+    const redeemReceipt = await sendWithRetry(annuity.methods.redeemMaturity(), { from: deal.annuityIssuer, gas: gasLimit(500000) });
     await waitForFinality();
     txs.push({ type: 'redeemMaturity', tx: redeemReceipt.transactionHash });
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Imperium Markets — Interactive CLI Agent (v0.2)
+ * Imperium Markets — Interactive CLI Agent (v0.3)
  *
  * A rule-based AI agent that orchestrates AnnuityToken smart-contract
  * operations via the mock API gateway.  No LLM / API key required.
