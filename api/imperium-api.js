@@ -13,8 +13,8 @@ const port = process.env.PORT || 4000;
 app.use(bodyParser.json());
 
 // ── Network selection ────────────────────────────────────────────────
-// Usage:  node mocks/mock-api.js --network hedera-testnet
-//         NETWORK=hedera-testnet node mocks/mock-api.js
+// Usage:  node api/imperium-api.js --network hedera-testnet
+//         NETWORK=hedera-testnet node api/imperium-api.js
 const networkArg = (() => {
   const idx = process.argv.indexOf('--network');
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
@@ -36,7 +36,7 @@ if (!NET.usePrefundedAccounts && process.env.HEDERA_TESTNET_PRIVATE_KEY) {
 
 // Load contract artifacts (Hardhat format)
 const annuityArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/AnnuityToken.sol/AnnuityToken.json')));
-const stablecoinArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/MockStablecoin.sol/MockStablecoin.json')));
+const stablecoinArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/ImperiumStableCoin.sol/ImperiumStableCoin.json')));
 
 // Prepare web3 Contract constructors (use ABI + bytecode)
 const AnnuityAbi = annuityArtifact.abi;
@@ -446,7 +446,7 @@ app.get('/transactions', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Mock API listening at http://localhost:${port} (network: ${NET.name})`);
+  console.log(`ImperiumAPI listening at http://localhost:${port} (network: ${NET.name})`);
 });
 
 module.exports = app;
@@ -463,7 +463,7 @@ app.get('/health', async (req, res) => {
 
 app.get('/', (req, res) => {
   res.json({
-    service: 'Imperium Markets API',
+    service: 'ImperiumAPI',
     network: NET.name,
     explorer: NET.explorer || 'N/A (local)',
     endpoints: [

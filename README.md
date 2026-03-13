@@ -1,6 +1,6 @@
 # Imperium Markets — AnnuityToken
 
-A Solidity smart contract project for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin on Hedera Network. Built with Hardhat + ethers.js v6, including a full-lifecycle CLI agent, mock API gateway, and automated demo bot.
+A Solidity smart contract project for creating, issuing, and trading tokenized annuities using an ERC20 stablecoin on Hedera Network. Built with Hardhat + ethers.js v6, including a full-lifecycle CLI agent, ImperiumAPI gateway, and automated demo bot.
 
 ## Quick Start
 
@@ -26,8 +26,8 @@ node test/annuity/demo-bot.js --fast
 - **Maturity Redemption:** Face value returned to current owner at maturity.
 - **Secure Payments:** OpenZeppelin SafeERC20 for all fund transfers.
 - **Reentrancy Protection:** All critical functions protected with OpenZeppelin ReentrancyGuard.
-- **CLI Agent (v0.2):** Interactive rule-based agent with 10 intents for full lifecycle management.
-- **Mock API Gateway:** Express server with 10 endpoints for contract orchestration.
+- **CLI Agent (v0.3):** Interactive rule-based agent with 10 intents for full lifecycle management.
+- **ImperiumAPI Gateway:** Express server with 10 endpoints for contract orchestration.
 - **Demo Bot:** Visual walkthrough bot for screen recordings and presentations.
 
 ## Project Structure
@@ -35,12 +35,12 @@ node test/annuity/demo-bot.js --fast
 ```
 contracts/
   AnnuityToken.sol          # Core annuity smart contract
-  MockStablecoin.sol        # ERC-20 mock for testing
+  ImperiumStableCoin.sol    # ERC-20 stablecoin (iUSD)
   MaliciousStablecoin.sol   # Adversarial mock for reentrancy tests
 scripts/
   deploy.js                 # Hardhat deploy script
-mocks/
-  mock-api.js               # Express API gateway (10 endpoints)
+api/
+  imperium-api.js           # ImperiumAPI gateway (10 endpoints)
 agent/
   cli-agent.js              # Interactive CLI agent (10 intents)
 test/annuity/
@@ -102,7 +102,7 @@ docs/
 - [Hardhat](https://hardhat.org/) — Build, test, deploy
 - [ethers.js v6](https://docs.ethers.org/v6/) — Contract interaction in tests
 - [web3.js v4](https://web3js.org/) — API gateway runtime
-- [Express](https://expressjs.com/) — Mock API server
+- [Express](https://expressjs.com/) — ImperiumAPI server
 
 ## License
 

@@ -10,8 +10,8 @@ describe("AnnuityToken - security and access control", function () {
 
   it("should not allow acceptAndIssue to run twice", async function () {
     // Deploy mock stablecoin and annuity
-    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", issuer);
-    const stablecoin = await MockStablecoin.deploy();
+    const ImperiumStableCoin = await ethers.getContractFactory("ImperiumStableCoin", issuer);
+    const stablecoin = await ImperiumStableCoin.deploy();
     await stablecoin.waitForDeployment();
     await stablecoin.connect(issuer).transfer(investor.address, ethers.parseEther("2000"));
 
@@ -43,8 +43,8 @@ describe("AnnuityToken - security and access control", function () {
 
   it("should not allow non-issuer to pay coupons", async function () {
     // Deploy mock stablecoin and annuity
-    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", issuer);
-    const stablecoin = await MockStablecoin.deploy();
+    const ImperiumStableCoin = await ethers.getContractFactory("ImperiumStableCoin", issuer);
+    const stablecoin = await ImperiumStableCoin.deploy();
     await stablecoin.waitForDeployment();
     await stablecoin.connect(issuer).transfer(investor.address, ethers.parseEther("2000"));
 

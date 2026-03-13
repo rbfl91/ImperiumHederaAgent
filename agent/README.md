@@ -1,12 +1,12 @@
-# Imperium Markets — CLI Agent (v0.2)
+# Imperium Markets — CLI Agent (v0.3)
 
-Rule-based interactive agent that orchestrates AnnuityToken smart contract operations via the mock API gateway. No LLM or API key required.
+Rule-based interactive agent that orchestrates AnnuityToken smart contract operations via the ImperiumAPI gateway. No LLM or API key required.
 
 ## Prerequisites
 
 1. **Hardhat node** running on port 8545
 2. **Contracts compiled and deployed**
-3. **Mock API** running on port 4000
+3. **ImperiumAPI** running on port 4000
 
 ## Quick Start
 
@@ -20,7 +20,7 @@ npx hardhat node
 # Terminal 2
 npx hardhat compile
 npx hardhat run scripts/deploy.js --network localhost
-node mocks/mock-api.js
+node api/imperium-api.js
 # Terminal 3
 node agent/cli-agent.js
 ```
@@ -56,7 +56,7 @@ node agent/cli-agent.js
 User input → Intent Parser (regex) → Tool Router → API call → Response Formatter
 ```
 
-The agent parses natural language commands, maps them to REST calls against `mock-api.js`, and presents results conversationally. After creating a deal, the agent remembers the correlation ID so you can say "execute" or "check status" without repeating it.
+The agent parses natural language commands, maps them to REST calls against the ImperiumAPI (`api/imperium-api.js`), and presents results conversationally. After creating a deal, the agent remembers the correlation ID so you can say "execute" or "check status" without repeating it.
 
 ## Full Demo Flow
 
@@ -75,6 +75,6 @@ list deals                        → all deals in session
 ## Architecture
 
 - **No LLM required** — intent detection via pattern matching
-- **Calls existing API** — 10 endpoints on `mock-api.js`
+- **Calls ImperiumAPI** — 10 endpoints via `api/imperium-api.js`
 - **Stateful session** — remembers last deal ID
 - **Extensible** — swap the intent parser for a LangChain LLM agent later (Milestone 2.5)

@@ -10,8 +10,8 @@ describe("Annuity Lifecycle - secondary trading & coupons", function () {
 
   it("issue -> coupon to investor -> transfer to secondary -> coupon to secondary", async function () {
     // Deploy mock stablecoin (ether simulation)
-    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", stablecoinIssuer);
-    const stablecoin = await MockStablecoin.deploy();
+    const ImperiumStableCoin = await ethers.getContractFactory("ImperiumStableCoin", stablecoinIssuer);
+    const stablecoin = await ImperiumStableCoin.deploy();
     await stablecoin.waitForDeployment();
 
     // Prefund both investor and secondary buyer with stablecoins
@@ -89,8 +89,8 @@ describe("Annuity Lifecycle - secondary trading & coupons", function () {
   });
 
   it("5-day coupon roll: 3 to investor, transfer, 2 to secondary", async function () {
-    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", stablecoinIssuer);
-    const stablecoin = await MockStablecoin.deploy();
+    const ImperiumStableCoin = await ethers.getContractFactory("ImperiumStableCoin", stablecoinIssuer);
+    const stablecoin = await ImperiumStableCoin.deploy();
     await stablecoin.waitForDeployment();
 
     // Prefund both investor and secondary buyer with stablecoins

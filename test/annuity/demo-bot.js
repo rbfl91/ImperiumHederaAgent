@@ -8,7 +8,7 @@
  *
  * Prerequisites:
  *   - Hardhat node on port 8545 + contracts deployed
- *   - mock-api.js on port 4000
+ *   - ImperiumAPI on port 4000 (api/imperium-api.js)
  *   (or just run ./start.sh first, then run the bot in another terminal)
  *
  * Usage:

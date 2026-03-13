@@ -10,8 +10,8 @@ describe("AnnuityToken - coupon payments", function () {
 
   it("should prevent paying the same coupon twice", async function () {
     // Deploy mock stablecoin
-    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", issuer);
-    const stablecoin = await MockStablecoin.deploy();
+    const ImperiumStableCoin = await ethers.getContractFactory("ImperiumStableCoin", issuer);
+    const stablecoin = await ImperiumStableCoin.deploy();
     await stablecoin.waitForDeployment();
     await stablecoin.connect(issuer).transfer(investor.address, ethers.parseEther("2000"));
 
@@ -52,8 +52,8 @@ describe("AnnuityToken - coupon payments", function () {
 
   it("should revert if coupon index is invalid", async function () {
     // Deploy mock stablecoin
-    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", issuer);
-    const stablecoin = await MockStablecoin.deploy();
+    const ImperiumStableCoin = await ethers.getContractFactory("ImperiumStableCoin", issuer);
+    const stablecoin = await ImperiumStableCoin.deploy();
     await stablecoin.waitForDeployment();
     await stablecoin.connect(issuer).transfer(investor.address, ethers.parseEther("2000"));
 

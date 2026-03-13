@@ -11,12 +11,12 @@ async function main() {
   console.log(`Deploying to network: ${networkName}`);
   console.log(`Deployer account: ${issuer.address}`);
 
-  // Deploy MockStablecoin
-  const MockStablecoin = await hre.ethers.getContractFactory("MockStablecoin");
-  const stablecoin = await MockStablecoin.deploy();
+  // Deploy ImperiumStableCoin
+  const ImperiumStableCoin = await hre.ethers.getContractFactory("ImperiumStableCoin");
+  const stablecoin = await ImperiumStableCoin.deploy();
   await stablecoin.waitForDeployment();
   const stablecoinAddress = await stablecoin.getAddress();
-  console.log("MockStablecoin deployed to:", stablecoinAddress);
+  console.log("ImperiumStableCoin deployed to:", stablecoinAddress);
 
   // Annuity parameters
   const startDate = Math.floor(Date.now() / 1000);

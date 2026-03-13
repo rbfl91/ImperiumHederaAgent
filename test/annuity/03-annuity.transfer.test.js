@@ -9,8 +9,8 @@ describe("AnnuityToken - secondary transfers", function () {
   });
 
   async function deployAndIssueAnnuity() {
-    const MockStablecoin = await ethers.getContractFactory("MockStablecoin", issuer);
-    const stablecoin = await MockStablecoin.deploy();
+    const ImperiumStableCoin = await ethers.getContractFactory("ImperiumStableCoin", issuer);
+    const stablecoin = await ImperiumStableCoin.deploy();
     await stablecoin.waitForDeployment();
     await stablecoin.connect(issuer).transfer(investor.address, ethers.parseEther("2000"));
     await stablecoin.connect(issuer).transfer(secondary.address, ethers.parseEther("500"));

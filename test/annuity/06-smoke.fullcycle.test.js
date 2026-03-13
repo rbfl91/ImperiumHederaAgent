@@ -2,7 +2,7 @@
  * Full-Lifecycle Smoke Test
  *
  * Exercises every API endpoint AND the agent's intent parser in a
- * single automated run.  Requires Hardhat node (8545) + mock-api (4000).
+ * single automated run.  Requires Hardhat node (8545) + ImperiumAPI (4000).
  *
  *   npx hardhat test test/annuity/06-smoke.fullcycle.test.js --network localhost
  */
@@ -45,7 +45,7 @@ describe('Full-Lifecycle Smoke Test', function () {
 
   it('GET / — root lists all endpoints', async () => {
     const data = await get('/');
-    assert.equal(data.service, 'Imperium Markets API');
+    assert.equal(data.service, 'ImperiumAPI');
     assert.ok(data.endpoints.length >= 9, `Expected ≥9 endpoints, got ${data.endpoints.length}`);
   });
 

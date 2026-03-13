@@ -13,7 +13,7 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 
 ### Success criteria
 
-- AnnuityToken + MockStablecoin deployed to Hedera Testnet.
+- AnnuityToken + ImperiumStableCoin deployed to Hedera Testnet.
 - Full lifecycle executable on-chain: issue → coupons → transfer → redeem.
 - CLI agent registered on HOL Registry Broker with published skills.
 - Agent-to-agent communication working via HCS-10 on Hedera Testnet.
@@ -27,11 +27,11 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | Asset | Status |
 |-------|--------|
 | `contracts/AnnuityToken.sol` | ✅ Production-ready Solidity ^0.8.21 |
-| `contracts/MockStablecoin.sol` | ✅ ERC-20 mock for testing |
-| `mocks/mock-api.js` | ✅ 10 endpoints, full lifecycle, `--network` flag, Hedera finality/gas handling, `dotenv` + wallet loading for testnet single-account mode |
+| `contracts/ImperiumStableCoin.sol` | ✅ ERC-20 stablecoin (ImperiumUSD / iUSD) |
+| `api/imperium-api.js` | ✅ ImperiumAPI — 10 endpoints, full lifecycle, `--network` flag, Hedera finality/gas handling, `dotenv` + wallet loading for testnet single-account mode |
 | `agent/cli-agent.js` | ✅ v0.3, 10 intents, HashScan links, network-aware banner |
 | `hardhat.config.js` | ✅ Solidity 0.8.21, Hardhat Network + localhost + `hederaTestnet` (chainId 296) |
-| `scripts/deploy.js` | ✅ Deploys MockStablecoin + AnnuityToken, saves to `deployments/`, short maturity for Hedera |
+| `scripts/deploy.js` | ✅ Deploys ImperiumStableCoin + AnnuityToken, saves to `deployments/`, short maturity for Hedera |
 | `config/networks.js` | ✅ Network config loader — local + hedera-testnet, deployment save/load, explorer URLs |
 | `test/annuity/01–05*.test.js` | ✅ 5 contract test files (migrated to ethers.js v6) |
 | `test/annuity/01-annuity.api.flow.test.js` | ✅ API integration test (fetch-based, uses 127.0.0.1) |
@@ -57,12 +57,12 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 |------|--------|---------|
 | Install Hardhat + plugins | ✅ | `hardhat@^2.28.6`, `@nomicfoundation/hardhat-toolbox@^5.0.0`, `dotenv` |
 | Create `hardhat.config.js` | ✅ | Solidity 0.8.21, Hardhat Network, Mocha 60s timeout |
-| Write Hardhat deploy script | ✅ | `scripts/deploy.js` — deploys MockStablecoin + AnnuityToken |
+| Write Hardhat deploy script | ✅ | `scripts/deploy.js` — deploys ImperiumStableCoin + AnnuityToken |
 | Migrate tests to ethers.js v6 | ✅ | Full rewrite: `contract()`→`describe()`, `artifacts.require`→`ethers.getContractFactory`, `web3.utils`→`ethers` utils, `expectRevert`→`chai-matchers`, `BN`→`BigInt` |
 | Verify local parity | ✅ | All 10 contract tests pass on Hardhat Network (799ms) |
 | Remove Truffle | ✅ | Deleted `truffle-config.js`, `migrations/`, `build/` |
 | Update `start.sh` | ✅ | `npx hardhat node` + `npx hardhat run scripts/deploy.js --network localhost` |
-| Update `mock-api.js` | ✅ | ABI paths: `build/contracts/` → `artifacts/contracts/*.sol/` |
+| Update `imperium-api.js` | ✅ | ABI paths: `build/contracts/` → `artifacts/contracts/*.sol/` |
 | Update `package.json` | ✅ | Added npm scripts: `compile`, `test`, `test:contracts`, `deploy:local`, `node`, `start` |
 | Create `.env.example` | ✅ | Template for Hedera credentials (Day 2+) |
 | Update `.gitignore` | ✅ | Added `cache/`, `artifacts/`, `.env`, `.DS_Store` |
@@ -73,7 +73,7 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 
 1. **Hardhat 2 (not 3):** Hardhat 3 requires ESM (`"type": "module"`) and Node.js v22.10+. Since the entire project is CommonJS, we chose Hardhat 2.28.6 to avoid a massive ESM conversion.
 2. **Full ethers.js rewrite (not hardhat-web3 plugin):** `@nomiclabs/hardhat-web3` targets web3 v1.x, but the project uses web3 v4. Full ethers.js v6 rewrite was cleaner.
-3. **web3 v4 kept in mock-api.js only:** The API server talks JSON-RPC directly — works with any node (Hardhat, Ganache, Hedera).
+3. **web3 v4 kept in imperium-api.js only:** The API server talks JSON-RPC directly — works with any node (Hardhat, Ganache, Hedera).
 
 ---
 
@@ -89,7 +89,7 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | Fund account | ✅ | 1000 ℏ testnet HBAR via portal faucet |
 | Configure `.env` | ✅ | ECDSA hex private key + Hashio RPC URL |
 | Add Hedera network to `hardhat.config.js` | ✅ | `hederaTestnet` network with chainId 296, 120s timeout |
-| Deploy to Hedera Testnet | ✅ | MockStablecoin `0xC44f...Af13`, AnnuityToken `0x6e5A...99d0` |
+| Deploy to Hedera Testnet | ✅ | ImperiumStableCoin `0xC44f...Af13`, AnnuityToken `0x6e5A...99d0` |
 | Record deployed addresses | ✅ | Auto-saved to `deployments/hedera-testnet.json` |
 | Verify contracts | ✅ | Visible on HashScan testnet explorer |
 
@@ -97,12 +97,12 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 
 | Task | Status | Details |
 |------|--------|---------|
-| Add `--network` flag to `mock-api.js` | ✅ | `node mocks/mock-api.js --network hedera-testnet` or `NETWORK=hedera-testnet` |
+| Add `--network` flag to `imperium-api.js` | ✅ | `node api/imperium-api.js --network hedera-testnet` or `NETWORK=hedera-testnet` |
 | Create `config/networks.js` | ✅ | Maps `local` → Hardhat Network, `hedera-testnet` → Hashio RPC + deployed addresses |
 | Handle Hedera differences | ✅ | Gas multiplier (1.2x), finality delay (5s), no time-travel → real-time wait |
 | Redeem workaround | ✅ | On testnet, deploy with 120s maturity + 30s coupon intervals for demo |
 | HashScan explorer links in API responses | ✅ | `explorerUrl` field in deal creation + tx history |
-| Fund test wallets | ✅ | Handled automatically by deploy script (deployer funds wallets via MockStablecoin) |
+| Fund test wallets | ✅ | Handled automatically by deploy script (deployer funds wallets via ImperiumStableCoin) |
 | Test API endpoints on Hedera | ✅ | Full stack launched: deploy → API (port 4000) → agent, all against Hashio RPC |
 | Run agent against testnet | ✅ | `./start.sh --network hedera-testnet` — banner shows `Network: hedera-testnet` |
 
@@ -117,7 +117,7 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | Agent version bump | ✅ | v0.2 → v0.3, shows network in banner |
 | Local parity verified | ✅ | All 10 contract tests pass, no regressions |
 | Run smoke test on testnet | ✅ | 27/27 passing (~3 min): deal creation 53s, execute 67s, transfer 23s, redeem 32s |
-| Run demo bot on testnet | ❌ | `npm run demo:hedera` |
+| Run demo bot on testnet | ✅ | `node test/annuity/demo-bot.js --network hedera-testnet --fast` — full lifecycle completed |
 | Dry-run the recording | ❌ | Full screen recording pass, check timing |
 
 **Gate:** Full lifecycle works via agent on Hedera Testnet. Demo bot runs clean end-to-end.
@@ -148,8 +148,8 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 
 | Fix | File | Details |
 |-----|------|---------|
-| Redeem `getAccounts()` wallet fallback | `mocks/mock-api.js` | Added single-account fallback in redeem endpoint (was only in deal creation) |
-| `node-fetch` import for time-travel | `mocks/mock-api.js` | Added `require('node-fetch')` for raw JSON-RPC time-travel calls |
+| Redeem `getAccounts()` wallet fallback | `api/imperium-api.js` | Added single-account fallback in redeem endpoint (was only in deal creation) |
+| `node-fetch` import for time-travel | `api/imperium-api.js` | Added `require('node-fetch')` for raw JSON-RPC time-travel calls |
 | Testing runbook | `docs/hedera-migration-blueprint.md` | Added Section 4.4 — step-by-step local + testnet testing commands |
 
 #### Verified Test Results (post-fix)
@@ -337,7 +337,7 @@ npx hardhat node &                                           # Hardhat node on 8
 sleep 3                                                      # Wait for node
 npx hardhat compile                                          # Compile contracts
 npx hardhat run scripts/deploy.js --network localhost         # Deploy contracts
-node mocks/mock-api.js --network local &                     # API on port 4000
+node api/imperium-api.js --network local &                     # API on port 4000
 sleep 2                                                      # Wait for API
 
 # ── 3. API integration test ──────────────────────────────────────
@@ -367,7 +367,7 @@ npx hardhat run scripts/deploy.js --network hederaTestnet
 # Maturity: 120s, coupon intervals: ~30s
 
 # ── 2. Start API against testnet ─────────────────────────────────
-node mocks/mock-api.js --network hedera-testnet &
+node api/imperium-api.js --network hedera-testnet &
 sleep 2
 
 # ── 3. Full lifecycle smoke test (~3–5 min) ──────────────────────
@@ -507,7 +507,7 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 | `@openzeppelin/test-helpers@^0.5.16` | `@nomicfoundation/hardhat-toolbox@^5.0.0` (includes ethers, chai-matchers, etc.) |
 | — | `dotenv@^17.3.1` |
 
-**Kept:** `web3@^4.16.0` (for `mock-api.js` runtime), `@openzeppelin/contracts@^5.4.0`, `express@^4.18.2`, `node-fetch@^2.6.7`
+**Kept:** `web3@^4.16.0` (for `imperium-api.js` runtime), `@openzeppelin/contracts@^5.4.0`, `express@^4.18.2`, `node-fetch@^2.6.7`
 
 ### 5.3 Per-file migration checklist
 
@@ -571,7 +571,7 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 | `.env.example` | **Created** — Template for Hedera credentials | 1 |
 | `.gitignore` | **Updated** — Added cache/, artifacts/, .env, .DS_Store | 1 |
 | `package.json` | **Modified** — Swapped deps (truffle→hardhat), added npm scripts | 1 |
-| `mocks/mock-api.js` | **Modified** — ABI paths: `build/contracts/` → `artifacts/contracts/*.sol/` | 1 |
+| `api/imperium-api.js` | **Modified** — ABI paths: `build/contracts/` → `artifacts/contracts/*.sol/` | 1 |
 | `start.sh` | **Modified** — Ganache → Hardhat node, truffle migrate → hardhat run | 1 |
 | `test/annuity/01-annuity.flow.test.js` | **Rewritten** — Truffle → ethers.js v6 | 1 |
 | `test/annuity/02-annuity.payments.test.js` | **Rewritten** — Truffle → ethers.js v6 | 1 |
@@ -587,15 +587,15 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 | `deployments/hedera-testnet.json` | **Auto-generated** — Created by deploy script on `--network hederaTestnet` | 2 |
 | `hardhat.config.js` | **Modified** — Added `hederaTestnet` network (chainId 296, 120s timeout) | 2 |
 | `scripts/deploy.js` | **Modified** — Saves addresses to `deployments/`, short maturity (120s) for Hedera, explorer output | 2 |
-| `mocks/mock-api.js` | **Modified** — `--network` flag, config loader, gas multiplier, finality delay, real-time maturity wait, explorer links, `dotenv` require, wallet loading for testnet (single-account mode via `web3.eth.accounts.wallet`) | 2 |
+| `api/imperium-api.js` | **Modified** — `--network` flag, config loader, gas multiplier, finality delay, real-time maturity wait, explorer links, `dotenv` require, wallet loading for testnet (single-account mode via `web3.eth.accounts.wallet`) | 2 |
 | `agent/cli-agent.js` | **Modified** — v0.3, `txLink()`/`contractLink()` helpers, HashScan links, network banner, `waitForMaturity` display | 2 |
 | `test/annuity/demo-bot.js` | **Modified** — `--network` flag, 3-min testnet timeouts, network label, NETWORK env passthrough | 2 |
-| `test/annuity/06-smoke.fullcycle.test.js` | **Modified** — 5-min suite timeout, service name `Imperium Markets API`, removed individual timeouts | 2 |
+| `test/annuity/06-smoke.fullcycle.test.js` | **Modified** — 5-min suite timeout, service name `ImperiumAPI`, header updated | 2 |
 | `start.sh` | **Modified** — `--network` arg, local/testnet branching, `.env` validation for testnet mode | 2 |
 | `package.json` | **Modified** — Added `deploy:hedera`, `start:hedera`, `demo`, `demo:hedera` scripts | 2 |
 | `.gitignore` | **Modified** — Added `deployments/` | 2 |
 | `.env.example` | **Modified** — Expanded with setup instructions | 2 |
-| `mocks/mock-api.js` | **Modified** — Fixed time-travel: `web3.currentProvider.request()` → raw `fetch()` JSON-RPC for `evm_increaseTime`/`evm_mine`; added `sendWithRetry()` (3 retries, exponential back-off) for Hashio resilience; added `node-fetch` import; added `getAccounts()` wallet fallback in redeem endpoint | 2.5 |
+| `api/imperium-api.js` | **Modified** — Fixed time-travel: `web3.currentProvider.request()` → raw `fetch()` JSON-RPC for `evm_increaseTime`/`evm_mine`; added `sendWithRetry()` (3 retries, exponential back-off) for Hashio resilience; added `node-fetch` import; added `getAccounts()` wallet fallback in redeem endpoint | 2.5 |
 | `agent/cli-agent.js` | **Modified** — Fixed JSDoc version comment: `v0.2` → `v0.3` | 2.5 |
 | `docs/hedera-migration-blueprint.md` | **Modified** — Added Section 4.4 Testing Runbook, added Day 2.5 verification summary, bumped to v3.3 | 2.5 |
 | `agent/hol-registry.js` | **Create** — HCS-10 registration, skill publishing, message handling via `@hashgraphonline/standards-sdk` `HCS10Client` | 3 |
@@ -616,7 +616,7 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 | Testnet faucet limits | Can't fund wallets | Request HBAR early, reuse accounts | ✅ Mitigated — single account plays all roles |
 | Hashio `getAccounts()` returns empty | API can't find signers | Load private key into web3 wallet | ✅ Mitigated — `dotenv` + `web3.eth.accounts.wallet.add()` |
 | Merged Day 2 is time-pressured (~6-8 hrs) | May not finish all phases | Phases are sequential with independent gates; Phase C can slip to Day 3 morning if needed | ✅ Mitigated — Phases A+B+C (automated) complete |
-| web3.js v4 silently drops non-standard RPC calls | Time-travel fails locally, redeem breaks | Use raw `fetch()` JSON-RPC for `evm_increaseTime`/`evm_mine` | ✅ Mitigated — raw fetch in `mock-api.js` (Day 2.5) |
+| web3.js v4 silently drops non-standard RPC calls | Time-travel fails locally, redeem breaks | Use raw `fetch()` JSON-RPC for `evm_increaseTime`/`evm_mine` | ✅ Mitigated — raw fetch in `imperium-api.js` (Day 2.5) |
 | Hashio returns HTML 503/429 under rapid tx load | Execute endpoint fails sporadically on testnet | Retry wrapper with exponential back-off | ✅ Mitigated — `sendWithRetry()` with 3 attempts (Day 2.5) |
 | HCS-10 standard unfamiliarity | Slows Days 3-4 | Full spec researched — see Section 4.5 for complete HCS-10 resource reference, protocol architecture, operations, and SDK quickstart | ✅ Mitigated — Day 2.5 research (v3.4) |
 | HOL Registry Broker testnet availability | Blocks agent registration | Verify broker is live early Day 3; fallback: mock broker locally | Pending (Day 3) |

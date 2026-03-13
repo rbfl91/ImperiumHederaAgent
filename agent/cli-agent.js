@@ -3,7 +3,7 @@
  * Imperium Markets — Interactive CLI Agent (v0.3)
  *
  * A rule-based AI agent that orchestrates AnnuityToken smart-contract
- * operations via the mock API gateway.  No LLM / API key required.
+ * operations via the ImperiumAPI gateway.  No LLM / API key required.
  *
  * Usage:
  *   node agent/cli-agent.js
@@ -11,7 +11,7 @@
  * Prerequisites:
  *   1. Hardhat node running on port 8545  (npx hardhat node)
  *   2. Contracts deployed                 (npx hardhat run scripts/deploy.js --network localhost)
- *   3. mock-api.js running on port 4000   (node mocks/mock-api.js)
+ *   3. ImperiumAPI running on port 4000   (node api/imperium-api.js)
  *
  *   Or simply:  ./start.sh
  */

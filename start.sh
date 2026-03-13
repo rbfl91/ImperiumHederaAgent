@@ -2,7 +2,7 @@
 #
 # Imperium Markets — Full Stack Launcher
 #
-# Starts Hardhat node (local only), deploys contracts, starts mock API,
+# Starts Hardhat node (local only), deploys contracts, starts ImperiumAPI,
 # and launches the CLI agent.
 #
 # Usage:
@@ -116,9 +116,9 @@ else
   echo -e "${GREEN}   ✅ Contracts deployed to Hedera Testnet${NC}"
 fi
 
-# ── 3) Start Mock API ─────────────────────────────────────────────
+# ── 3) Start ImperiumAPI ──────────────────────────────────────────
 echo -e "${YELLOW}[3/4]${NC} Starting API on port 4000 (network: ${NETWORK})..."
-node mocks/mock-api.js --network "$NETWORK" > /tmp/mock-api.log 2>&1 &
+node api/imperium-api.js --network "$NETWORK" > /tmp/imperium-api.log 2>&1 &
 API_PID=$!
 PIDS+=($API_PID)
 
@@ -127,7 +127,7 @@ RETRIES=0
 until curl -s -o /dev/null http://127.0.0.1:4000/health 2>/dev/null; do
   RETRIES=$((RETRIES + 1))
   if [ "$RETRIES" -gt 15 ]; then
-    echo -e "${RED}❌ API failed to start after 15s. Check /tmp/mock-api.log${NC}"
+    echo -e "${RED}❌ ImperiumAPI failed to start after 15s. Check /tmp/imperium-api.log${NC}"
     exit 1
   fi
   sleep 1
