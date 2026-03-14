@@ -77,5 +77,5 @@ describe('Annuity API Gateway Integration', function () {
     assert.equal(finalData.status, 'executed', 'Deal status is executed');
     assert.equal(finalData.contractState.issued, true, 'Annuity issued');
     assert.equal(finalData.contractState.expired, false, 'Annuity not expired');
-  }).timeout(30000);
+  }).timeout(300000); // 5 min — Hardhat deploy can take >30s
 });

@@ -28,6 +28,7 @@ const {
   AgentBuilder,
   AIAgentCapability,
   ConnectionsManager,
+  RegistryBrokerClient,
 } = require('@hashgraphonline/standards-sdk');
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -490,6 +491,145 @@ function printState(state) {
   console.log('└─────────────────────────────────────────────────────┘');
 }
 
+// ── Register agent with HOL REST search index ──────────────────────
+
+async function cmdRegisterIndex() {
+  const state = loadState();
+  if (!state || !state.agentAccountId) {
+    console.error('❌ No agent state found. Run "create" first.');
+    process.exit(1);
+  }
+
+  const agentKey = state.agentPrivateKey || OPERATOR_KEY;
+  const keyStr = agentKey.startsWith('0x') ? agentKey.slice(2) : agentKey;
+
+  console.log('Registering agent with HOL Registry REST search index...\n');
+  console.log(`   Agent:   ${state.agentAccountId}`);
+  console.log(`   Inbound: ${state.inboundTopicId}`);
+  console.log(`   Network: ${state.network || 'testnet'}\n`);
+
+  const broker = new RegistryBrokerClient({
+    network: state.network || 'testnet',
+    accountId: state.agentAccountId,
+  });
+
+  // Step 1: Authenticate with ledger credentials (proves account ownership)
+  console.log('   [1/3] Authenticating with HOL Registry...');
+  let auth;
+  try {
+    auth = await broker.authenticateWithLedgerCredentials({
+      accountId: state.agentAccountId,
+      hederaPrivateKey: keyStr,
+      network: state.network || 'testnet',
+    });
+  } catch (err) {
+    console.error('❌ Authentication failed:', err.message || err);
+    if (err.body) console.error('   Body:', JSON.stringify(err.body));
+    process.exit(1);
+  }
+
+  const apiKey = auth.key || auth.apiKey;
+  if (!apiKey || typeof apiKey !== 'string') {
+    console.error('❌ Authentication did not return a valid API key.');
+    console.error('   Auth response:', JSON.stringify(auth));
+    process.exit(1);
+  }
+  broker.setLedgerApiKey(apiKey);
+  console.log('         ✅ Authenticated');
+
+  // Step 2: Purchase registry credits via direct API (10 credits ≈ 1.12 HBAR)
+  // The SDK's purchaseCreditsWithHbar has param-wrapping issues, so we call the API directly.
+  console.log('   [2/3] Purchasing registry credits (10 credits ≈ 1.12 HBAR)...');
+  try {
+    const { PrivateKey } = require('@hashgraph/sdk');
+    const rawKey = PrivateKey.fromStringDer(keyStr).toStringRaw();
+    const purchaseRes = await fetch('https://hol.org/registry/api/v1/credits/hbar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-ledger-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        accountId: state.agentAccountId,
+        payerKey: rawKey,
+        hbarAmount: 2,
+      }),
+    });
+    if (purchaseRes.ok) {
+      const purchaseData = await purchaseRes.json().catch(() => ({}));
+      console.log('         ✅ Credits purchased');
+      if (purchaseData.credits) console.log(`         Balance: ${purchaseData.credits} credits`);
+    } else {
+      const text = await purchaseRes.text().catch(() => '');
+      // 502/504 = backend down; other errors may be transient
+      if (purchaseRes.status >= 500) {
+        throw new Error(`HOL backend returned ${purchaseRes.status} — temporarily down`);
+      }
+      // Try to parse JSON error
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (_) { /* ignore */ }
+      if (parsed && parsed.availableCredits >= 10) {
+        console.log('         ✅ Sufficient credits already available');
+      } else {
+        throw new Error(`${purchaseRes.status}: ${text.slice(0, 200)}`);
+      }
+    }
+  } catch (err) {
+    console.error('❌ Credit purchase failed:', err.message || err);
+    console.error('\n   The HOL Registry credit backend (registry.hashgraphonline.com) may be temporarily down.');
+    console.error('   Retry later: node agent/hol-registry.js register-index');
+    process.exit(1);
+  }
+
+  // Step 3: Register agent in the REST search index
+  console.log('   [3/3] Submitting agent to search index...');
+
+  const profile = {
+    type: 1,
+    version: '1.0',
+    display_name: 'Imperium Annuity Agent',
+    alias: 'imperium-annuity',
+    base_account: state.agentAccountId,
+    bio: 'Australian Capital Markets annuity agent — issues, settles, transfers, and redeems AnnuityTokens on Hedera. HCS-10 compliant with 7 domain-specific skills.',
+    properties: {
+      accountId: state.agentAccountId,
+      inboundTopicId: state.inboundTopicId,
+      outboundTopicId: state.outboundTopicId,
+      profileTopicId: state.profileTopicId,
+      network: state.network || 'testnet',
+      skills: state.skills || [],
+    },
+    aiAgent: {
+      type: 1,
+      creator: 'Imperium Markets',
+      model: 'rule-based',
+      capabilities: [8, 10, 14, 18, 17, 7, 16],
+    },
+  };
+
+  try {
+    const result = await broker.registerAgent({
+      profile,
+      protocol: 'hcs-10',
+      registry: 'hashgraph-online',
+      metadata: {
+        openConvAICompatible: true,
+        adapter: 'self-registered',
+        nativeId: state.agentAccountId,
+        category: 'finance',
+      },
+    });
+    console.log('         ✅ Agent submitted to search index');
+    console.log('\n🎉 Registration complete! Agent should appear in "list agents imperium" shortly.');
+    if (result) console.log('   Response:', JSON.stringify(result, null, 2));
+  } catch (err) {
+    console.error('❌ Index registration failed:', err.message || err);
+    if (err.body) console.error('   Body:', JSON.stringify(err.body));
+    console.error('\n   The HOL Registry backend may be temporarily down (502/504).');
+    console.error('   Retry later: node agent/hol-registry.js register-index');
+  }
+}
+
 // ── Exports (for programmatic use) ──────────────────────────────────
 
 module.exports = {
@@ -501,6 +641,7 @@ module.exports = {
   cmdStatus,
   cmdConnect,
   cmdListen,
+  cmdRegisterIndex,
   executeSkill,
   SKILL_ROUTES,
 };
@@ -512,19 +653,21 @@ if (require.main === module) {
   const arg = process.argv[3];
 
   const commands = {
-    create:  () => cmdCreate(),
-    status:  () => cmdStatus(),
-    connect: () => cmdConnect(arg),
-    listen:  () => cmdListen(),
+    create:           () => cmdCreate(),
+    status:           () => cmdStatus(),
+    connect:          () => cmdConnect(arg),
+    listen:           () => cmdListen(),
+    'register-index': () => cmdRegisterIndex(),
   };
 
   if (!cmd || !commands[cmd]) {
     console.log('Usage: node agent/hol-registry.js <command>\n');
     console.log('Commands:');
-    console.log('  create           Create and register agent on HOL Registry');
+    console.log('  create           Create and register agent on HOL Registry (on-chain)');
     console.log('  status           Show current agent state');
     console.log('  connect <topic>  Connect to another agent\'s inbound topic');
     console.log('  listen           Listen for connections + skill requests');
+    console.log('  register-index   Submit agent to HOL REST search index');
     process.exit(0);
   }
 
