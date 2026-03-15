@@ -514,13 +514,29 @@ async function cmdRegisterIndex() {
   });
 
   // Step 1: Authenticate with ledger credentials (proves account ownership)
+  //   The bundled authenticateWithLedgerCredentials() method is unreliable,
+  //   so we use the low-level createLedgerChallenge + verifyLedgerChallenge flow.
+  //   Signature must be base64-encoded, and verify needs network + accountId.
   console.log('   [1/3] Authenticating with HOL Registry...');
   let auth;
   try {
-    auth = await broker.authenticateWithLedgerCredentials({
+    const { PrivateKey } = require('@hashgraph/sdk');
+    const privateKey = PrivateKey.fromStringDer(keyStr);
+
+    const challenge = await broker.createLedgerChallenge({
       accountId: state.agentAccountId,
-      hederaPrivateKey: keyStr,
       network: state.network || 'testnet',
+    });
+
+    const signature = privateKey.sign(new TextEncoder().encode(challenge.message));
+    const signatureBase64 = Buffer.from(signature).toString('base64');
+
+    auth = await broker.verifyLedgerChallenge({
+      challengeId: challenge.challengeId,
+      signature: signatureBase64,
+      publicKey: privateKey.publicKey.toStringRaw(),
+      network: state.network || 'testnet',
+      accountId: state.agentAccountId,
     });
   } catch (err) {
     console.error('❌ Authentication failed:', err.message || err);
@@ -537,48 +553,43 @@ async function cmdRegisterIndex() {
   broker.setLedgerApiKey(apiKey);
   console.log('         ✅ Authenticated');
 
-  // Step 2: Purchase registry credits via direct API (10 credits ≈ 1.12 HBAR)
-  // The SDK's purchaseCreditsWithHbar has param-wrapping issues, so we call the API directly.
+  // Step 2: Purchase registry credits (10 credits ≈ 1.12 HBAR)
+  // NOTE: HBAR credit purchase uses mainnet Hedera nodes — only works with mainnet accounts.
+  //       On testnet, this step will fail. Skip with --skip-credits if credits already purchased.
   console.log('   [2/3] Purchasing registry credits (10 credits ≈ 1.12 HBAR)...');
   try {
-    const { PrivateKey } = require('@hashgraph/sdk');
-    const rawKey = PrivateKey.fromStringDer(keyStr).toStringRaw();
-    const purchaseRes = await fetch('https://hol.org/registry/api/v1/credits/hbar', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-ledger-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        accountId: state.agentAccountId,
-        payerKey: rawKey,
-        hbarAmount: 2,
-      }),
-    });
-    if (purchaseRes.ok) {
-      const purchaseData = await purchaseRes.json().catch(() => ({}));
-      console.log('         ✅ Credits purchased');
-      if (purchaseData.credits) console.log(`         Balance: ${purchaseData.credits} credits`);
+    // First check if we already have enough credits
+    await broker.ensureCreditsForRegistration();
+    console.log('         ✅ Sufficient credits available');
+  } catch (creditErr) {
+    const body = creditErr.body || {};
+    if (body.error === 'insufficient_credits') {
+      console.log(`         Need ${body.requiredCredits} credits, have ${body.availableCredits || 0}`);
+      try {
+        const purchaseResult = await broker.purchaseCreditsWithHbar({
+          accountId: state.agentAccountId,
+          privateKey: keyStr,
+          hbarAmount: 2,
+        });
+        console.log('         ✅ Credits purchased');
+        if (purchaseResult && purchaseResult.credits) {
+          console.log(`         Balance: ${purchaseResult.credits} credits`);
+        }
+      } catch (purchaseErr) {
+        const msg = (purchaseErr.body && purchaseErr.body.message) || purchaseErr.message || '';
+        if (msg.includes('PAYER_ACCOUNT_NOT_FOUND')) {
+          console.error('❌ Credit purchase failed — HBAR payments use mainnet Hedera nodes.');
+          console.error('   This command requires a mainnet account with funded HBAR.');
+          console.error('   On testnet, purchase credits manually at https://hol.org/registry/billing');
+        } else {
+          console.error('❌ Credit purchase failed:', msg);
+        }
+        process.exit(1);
+      }
     } else {
-      const text = await purchaseRes.text().catch(() => '');
-      // 502/504 = backend down; other errors may be transient
-      if (purchaseRes.status >= 500) {
-        throw new Error(`HOL backend returned ${purchaseRes.status} — temporarily down`);
-      }
-      // Try to parse JSON error
-      let parsed;
-      try { parsed = JSON.parse(text); } catch (_) { /* ignore */ }
-      if (parsed && parsed.availableCredits >= 10) {
-        console.log('         ✅ Sufficient credits already available');
-      } else {
-        throw new Error(`${purchaseRes.status}: ${text.slice(0, 200)}`);
-      }
+      // ensureCreditsForRegistration returned undefined (success) — we have enough
+      console.log('         ✅ Credits available');
     }
-  } catch (err) {
-    console.error('❌ Credit purchase failed:', err.message || err);
-    console.error('\n   The HOL Registry credit backend (registry.hashgraphonline.com) may be temporarily down.');
-    console.error('   Retry later: node agent/hol-registry.js register-index');
-    process.exit(1);
   }
 
   // Step 3: Register agent in the REST search index

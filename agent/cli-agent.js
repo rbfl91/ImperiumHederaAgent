@@ -1,22 +1,29 @@
 #!/usr/bin/env node
 /**
- * Imperium Markets — Interactive CLI Agent (v0.4)
+ * Imperium Markets — Interactive CLI Agent (v0.5)
  *
- * A rule-based AI agent that orchestrates AnnuityToken smart-contract
- * operations via the ImperiumAPI gateway, with HCS-10 agent-to-agent
- * communication support via the HOL Registry Broker.
+ * An LLM-powered AI agent (with regex fallback) that orchestrates AnnuityToken
+ * smart-contract operations via the ImperiumAPI gateway, with HCS-10 agent-to-agent
+ * communication and Hedera-native queries via hedera-agent-kit.
  *
  * Usage:
- *   node agent/cli-agent.js
+ *   node agent/cli-agent.js                     # LLM mode (if ANTHROPIC_API_KEY set)
+ *   node agent/cli-agent.js --no-llm            # Force regex mode
+ *   node agent/cli-agent.js --network hedera-testnet
  *
  * Prerequisites:
  *   1. Hardhat node running on port 8545  (npx hardhat node)
  *   2. Contracts deployed                 (npx hardhat run scripts/deploy.js --network localhost)
  *   3. ImperiumAPI running on port 4000   (node api/imperium-api.js)
+ *   4. (Optional) ANTHROPIC_API_KEY in .env for LLM mode
  *
  *   Or simply:  ./start.sh
  *
- * HCS-10 features (v0.4):
+ * LLM mode (v0.5) — powered by Claude + hedera-agent-kit:
+ *   Natural language input for all commands, plus Hedera-native queries
+ *   (HBAR balances, account info, token holdings, tx details).
+ *
+ * Regex mode (fallback):
  *   - "list agents"        — discover agents on HOL Registry
  *   - "connect to <topic>"  — establish HCS-10 connection
  *   - "send <skill>"       — invoke skill on connected agent
@@ -27,9 +34,13 @@
 
 const readline = require('readline');
 const fetch = require('node-fetch');
+require('dotenv').config();
 
 // Import HOL registry module for HCS-10 operations
 const hol = require('./hol-registry');
+
+// Import LLM agent module
+const llmAgent = require('./llm-agent');
 
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:4000';
 const NETWORK = (() => {
@@ -38,6 +49,7 @@ const NETWORK = (() => {
   return process.env.NETWORK || 'local';
 })();
 const REGISTRY_API = 'https://hol.org/registry/api/v1';
+const NO_LLM = process.argv.includes('--no-llm');
 
 // HashScan explorer base for Hedera Testnet
 const EXPLORER_BASE = NETWORK === 'hedera-testnet'
@@ -955,6 +967,10 @@ function handleHelp() {
     '   "exit"                   — quit the agent',
     '',
     '  Tip: The agent remembers the last deal ID and connection.',
+    '',
+    llmAgent.isReady()
+      ? '  Mode: LLM — use natural language! (e.g. "I want to issue a bond")'
+      : '  Mode: regex — set ANTHROPIC_API_KEY for natural language mode.',
   ]);
 }
 
@@ -968,15 +984,57 @@ async function main() {
     ? `  HCS-10 Agent: ${holAgentState.agentAccountId}  (Inbound: ${holAgentState.inboundTopicId})`
     : '  HCS-10: Not registered (run: node agent/hol-registry.js create)';
 
+  // Initialize LLM agent if API key available and not disabled
+  let llmMode = false;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (apiKey && !NO_LLM) {
+    llmMode = llmAgent.init({
+      apiKey,
+      agentState: holAgentState,
+      hcsContext: {
+        hcsConnect: async (topicId) => {
+          await handleConnect(topicId);
+          return { status: 'ok', connectionTopicId: lastConnectionTopicId };
+        },
+        hcsSendSkill: async (skill, target, params) => {
+          await handleSendSkill(skill, target, params);
+          return { status: 'sent', skill, target: target || lastConnectionTopicId };
+        },
+        getConnections: () => {
+          const conns = [];
+          for (const [topicId, info] of hcsConnections) {
+            conns.push({ connectionTopicId: topicId, remote: info.accountId || info.name, active: topicId === lastConnectionTopicId });
+          }
+          return { connections: conns };
+        },
+        startListener: async () => {
+          await handleStartListener();
+          return { status: 'started' };
+        },
+        stopListener: () => {
+          handleStopListener();
+          return { status: 'stopped' };
+        },
+      },
+    });
+  }
+
+  const modeInfo = llmMode
+    ? `  Mode: LLM (Claude + hedera-agent-kit) — ${llmAgent.getToolCount()} tools`
+    : apiKey
+      ? '  Mode: regex (LLM init failed — check logs)'
+      : '  Mode: regex (set ANTHROPIC_API_KEY for LLM mode)';
+
   console.log();
   console.log('  ╔═══════════════════════════════════════════════════╗');
-  console.log('  ║   🦞  Imperium Markets — Annuity Agent  (v0.4)   ║');
+  console.log(`  ║   🦞  Imperium Markets — Annuity Agent  (v0.5)   ║`);
   console.log('  ║                                                   ║');
-  console.log('  ║   Rule-based agent + HCS-10 agent network.       ║');
+  console.log(`  ║   ${llmMode ? 'LLM-powered agent' : 'Rule-based agent'} + HCS-10 agent network.${llmMode ? '' : '       '}   ║`);
   console.log('  ║   Type "help" for available commands.             ║');
   console.log('  ╚═══════════════════════════════════════════════════╝');
   console.log(`  Network: ${netLabel}`);
   console.log(agentLine);
+  console.log(modeInfo);
   console.log();
 
   const rl = readline.createInterface({
@@ -988,7 +1046,39 @@ async function main() {
   rl.prompt();
 
   rl.on('line', async (line) => {
-    const parsed = parseIntent(line);
+    const trimmed = line.trim();
+    if (!trimmed) { rl.prompt(); return; }
+
+    // ── LLM mode: send everything to Claude ──
+    if (llmMode) {
+      // Quick exit check (no need to call LLM)
+      if (/^(exit|quit|bye|q)$/i.test(trimmed)) {
+        if (listenerInterval) clearInterval(listenerInterval);
+        printAgent('👋 Goodbye!');
+        process.exit(0);
+      }
+
+      try {
+        const { text, toolCalls } = await llmAgent.processInput(trimmed);
+
+        // Update state from tool results
+        for (const tc of toolCalls) {
+          if (tc.name === 'create_annuity' && tc.args) {
+            // The tool returns JSON with correlationId — extract it
+          }
+        }
+
+        printAgent(text);
+      } catch (err) {
+        printAgent(`❌ LLM error: ${err.message}`);
+      }
+
+      rl.prompt();
+      return;
+    }
+
+    // ── Regex mode: existing intent parser ──
+    const parsed = parseIntent(trimmed);
 
     switch (parsed.intent) {
       // HCS-10 commands

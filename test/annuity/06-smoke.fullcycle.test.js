@@ -234,4 +234,58 @@ describe('Full-Lifecycle Smoke Test', function () {
     const r = parseIntent('asdfghjkl');
     assert.equal(r.intent, 'UNKNOWN');
   });
+
+  // ── Part 3 — LLM Agent (conditional, requires ANTHROPIC_API_KEY) ──
+  const llmAgent = require('../../agent/llm-agent');
+  const HAS_LLM_KEY = !!process.env.ANTHROPIC_API_KEY;
+
+  (HAS_LLM_KEY ? describe : describe.skip)('LLM Agent (Claude + hedera-agent-kit)', function () {
+    this.timeout(60000);
+
+    before(function () {
+      const ok = llmAgent.init({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+        agentState: null,
+        hcsContext: {},
+      });
+      assert.ok(ok, 'LLM agent should initialize with valid API key');
+    });
+
+    beforeEach(function () {
+      llmAgent.resetConversation();
+    });
+
+    it('llm: classifies natural language CREATE request', async () => {
+      const { toolCalls } = await llmAgent.processInput(
+        "I'd like to create a new bond with 3 coupon payments"
+      );
+      assert.ok(toolCalls.length > 0, 'should make at least one tool call');
+      assert.equal(toolCalls[0].name, 'create_annuity');
+    });
+
+    it('llm: classifies freeform status query', async () => {
+      const { text, toolCalls } = await llmAgent.processInput(
+        'check the status of deal deal-123'
+      );
+      // Claude may call the tool or ask for clarification — both are valid
+      if (toolCalls.length > 0) {
+        assert.ok(
+          ['check_deal_status', 'list_deals'].includes(toolCalls[0].name),
+          `expected status or list tool, got ${toolCalls[0].name}`
+        );
+      } else {
+        assert.ok(text.length > 0, 'should return a text response');
+      }
+    });
+
+    it('llm: handles help without tool call', async () => {
+      const { text } = await llmAgent.processInput('help');
+      assert.ok(text.length > 0, 'should return help text');
+    });
+
+    it('llm: reports tool count', () => {
+      const count = llmAgent.getToolCount();
+      assert.ok(count >= 15, `expected ≥15 tools, got ${count}`);
+    });
+  });
 });

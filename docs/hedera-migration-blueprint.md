@@ -1,8 +1,8 @@
 # Imperium Markets — Hedera Testnet Deployment Plan
 
-**Version:** 3.8
-**Date:** 2026-03-13
-**Target:** Deploy AnnuityToken to Hedera Testnet + HOL Registry Broker agent demo + CLI Agent v0.4 in 6 days
+**Version:** 4.0
+**Date:** 2026-03-14
+**Target:** Deploy AnnuityToken to Hedera Testnet + HOL Registry Broker agent demo + CLI Agent v0.5 (LLM-powered) in 6 days
 **Authors:** Imperium Markets Engineering
 
 ---
@@ -30,7 +30,7 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | `contracts/AnnuityToken.sol` | ✅ Production-ready Solidity ^0.8.21 |
 | `contracts/ImperiumStableCoin.sol` | ✅ ERC-20 stablecoin (ImperiumUSD / iUSD) |
 | `api/imperium-api.js` | ✅ ImperiumAPI — 10 endpoints, full lifecycle, `--network` flag, Hedera finality/gas handling, `dotenv` + wallet loading for testnet single-account mode |
-| `agent/cli-agent.js` | ✅ v0.4, 16 intents (10 annuity + 6 HCS-10), HCS-10 listener mode, agent discovery, connection management, skill invocation |
+| `agent/cli-agent.js` | ✅ v0.4, 17 intents (11 annuity/system + 6 HCS-10), HCS-10 listener mode, agent discovery, connection management, skill invocation |
 | `hardhat.config.js` | ✅ Solidity 0.8.21, Hardhat Network + localhost + `hederaTestnet` (chainId 296) |
 | `scripts/deploy.js` | ✅ Deploys ImperiumStableCoin + AnnuityToken, saves to `deployments/`, short maturity for Hedera |
 | `config/networks.js` | ✅ Network config loader — local + hedera-testnet, deployment save/load, explorer URLs |
@@ -42,7 +42,7 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | `.env.example` | ✅ Template for Hedera credentials with setup instructions |
 | `.gitignore` | ✅ Excludes node_modules, .env, cache/, artifacts/, deployments/ |
 | `package.json` | ✅ Scripts: `deploy:hedera`, `start:hedera`, `demo`, `demo:hedera` |
-| `agent/hol-registry.js` | ✅ HOL Registry Broker module — `create`, `status`, `connect`, `listen` commands, skill-to-API mapping (7 skills), inbound polling, auto-accept connections, skill execution + response, auto key type detection |
+| `agent/hol-registry.js` | ✅ HOL Registry Broker module — `create`, `status`, `connect`, `listen`, `register-index` commands, skill-to-API mapping (7 skills), inbound polling, auto-accept connections, skill execution + response, auto key type detection, low-level ledger auth (challenge → base64 sign → verify) |
 | `agent/test-a2a.js` | ✅ Agent-to-agent communication test — creates Test Requester agent (cached), connects via HCS-10, invokes skill, reads response |
 | `deployments/hol-agent.json` | ✅ Agent identity state — account `0.0.8218785`, inbound/outbound/profile topic IDs, 7 skills |
 | `truffle-config.js` + `migrations/` | ✅ **Deleted** — fully replaced by Hardhat |
@@ -260,25 +260,26 @@ Testnet smoke timing: deal creation ~48s, execute ~73s, transfer ~24s, redeem ~2
 | 6 | Add `"show connections"` intent | ✅ | Displays active HCS-10 connections: Connection Topic ID, remote agent account, name. |
 | 7 | Update CLI banner + help | ✅ | v0.4 banner with HCS-10 section in help. Shows agent account ID + inbound topic when HOL state available. |
 | 8 | Add HCS-10 listener mode to CLI agent | ✅ | `setInterval(pollOnce, 5000)` alongside readline REPL. Auto-accepts connections, executes inbound skill requests, sends responses. `processedRequests`/`processedMessages` Sets for deduplication. |
-| 9 | Test CLI ↔ HOL agent flow | ✅ | All 27 smoke tests pass (10 contract + 14 parseIntent including 6 new HCS-10 intents + 13 API lifecycle). Manual end-to-end testing pending for Day 6 demo. |
+| 9 | Test CLI ↔ HOL agent flow | ✅ | All 27 smoke tests pass (13 API lifecycle + 14 parseIntent). HCS-10 intents not yet covered by automated tests — validated manually via CLI. Manual end-to-end testing pending for Day 6 demo. |
 
-#### Pending — HOL REST Search Index Registration
+#### Deferred — HOL REST Search Index Registration (Mainnet Only)
 
-The agent is registered on-chain (HCS-10 Guarded Registry) but NOT yet in the HOL REST search index (`hol.org/registry/api/v1/search`). This means `list agents imperium` won't find our agent. The `register-index` command handles this:
+The agent is registered **on-chain** (HCS-10 Guarded Registry on Hedera testnet) ✅ but is NOT in the HOL REST search index (`hol.org/registry/api/v1/search`). The `register-index` command (`node agent/hol-registry.js register-index`) is implemented and ready.
 
-```
-node agent/hol-registry.js register-index
-```
+**Finding:** The HOL credit purchase API executes HBAR transfers via **mainnet-only** Hedera nodes (e.g. `0.0.23`, `0.0.27`). Testnet accounts fail with `PAYER_ACCOUNT_NOT_FOUND`. Authentication (ledger challenge → base64 signature → verify) works correctly on testnet and returns a valid API key. Credit purchase is the blocker.
 
-**Flow:** Authenticate (ledger challenge) → Purchase credits (10 credits ≈ 1.12 HBAR) → Submit to index.
+**Resolution:** Search index registration is deferred to mainnet deployment. The `register-index` command is production-ready — when run with a mainnet account + funded HBAR wallet it will: authenticate → purchase 10 credits (~1.12 HBAR) → submit agent profile to the index. The `list agents` CLI command works now for discovering any agents already in the index.
 
-**Status:** Authentication works, but the HOL credit purchase backend (`registry.hashgraphonline.com`) is intermittently returning 502/504 errors. Retry when the backend recovers.
+**On-chain registration (working today):**
+- Account `0.0.8218785` on Hedera testnet ✅
+- Inbound/outbound/profile topics confirmed via Mirror Node ✅
+- Agent-to-agent connections + skill execution verified ✅
 
 #### Phase 2 — AusCM Enhancements (v0.5)
 
 | # | Task | Status | Details |
 |---|------|--------|---------|
-| 10 | LLM integration via `hedera-agent-kit` | | Replace rule-based `parseIntent()` with LangChain-powered natural language understanding. Install `hedera-agent-kit`, configure LLM provider, define tools/plugins for annuity lifecycle + HCS-10 commands. Key differentiator vs Hedera's free portal tools. |
+| 10 | LLM integration via `hedera-agent-kit` | ✅ | Hybrid architecture: `@langchain/anthropic` (Claude Haiku 4.5) for NLU + `hedera-agent-kit` for Hedera-native queries. Custom LangChain plugins: `annuity-plugin.js` (9 tools wrapping ImperiumAPI), `hcs10-plugin.js` (6 HCS-10 tools). Kit provides account/token/consensus/EVM query tools. Dual mode: LLM when `ANTHROPIC_API_KEY` set, regex fallback otherwise. `--no-llm` flag to force regex. CLI bumped to v0.5. |
 | 11 | Yield Calculator | | `"calculate yield"` — Yield-to-maturity, current yield, accrued interest for the active deal. Australian ACT/365 day-count convention. |
 | 12 | AUD Formatting | | Automatic — Display all values in AUD with proper formatting (`A$1,000,000.00`). Applied across all CLI output. |
 | 13 | Compliance Summary | | `"compliance report"` — Formatted summary: issuer details, investor eligibility, coupon schedule, regulatory flags for ASIC/AFSL. |
@@ -346,7 +347,7 @@ These features enhance the current CLI agent with AusCM domain intelligence. Mov
 
 | Feature | Intent/Command | Details | Status |
 |---------|---------------|---------|--------|
-| **LLM Integration** | Natural language | Integrate `hedera-agent-kit` (LangChain) to replace rule-based `parseIntent()` with LLM-powered natural language understanding. Freeform queries instead of regex patterns. Key differentiator vs Hedera's free portal tools. | |
+| **LLM Integration** | Natural language | Integrate `hedera-agent-kit` (LangChain) to replace rule-based `parseIntent()` with LLM-powered natural language understanding. Freeform queries instead of regex patterns. Key differentiator vs Hedera's free portal tools. | ✅ Done (v0.5) |
 | **Yield Calculator** | `"calculate yield"` | Yield-to-maturity, current yield, accrued interest for the active deal | |
 | **Compliance Summary** | `"compliance report"` | Formatted summary: issuer details, investor eligibility, coupon schedule, regulatory flags | |
 | **AUD Formatting** | Automatic | Display all values in AUD with proper formatting (`A$1,000,000.00`) | |
@@ -706,6 +707,15 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 | `deployments/test-requester.json` | **Auto-generated** — Test requester agent identity: account `0.0.8199239`, inbound/outbound/profile topic IDs | 4 |
 | `agent/cli-agent.js` | **Rewritten** — v0.3 → v0.4. Added HCS-10 agent network: 6 new intents (`HCS_LISTEN`, `HCS_STOP_LISTEN`, `HCS_LIST_AGENTS`, `HCS_CONNECT`, `HCS_SEND_SKILL`, `HCS_CONNECTIONS`), `initHCS()` lazy init, `handleListAgents()` via HOL Registry REST API, `handleConnect()` with connection confirmation polling, `handleSendSkill()` with 120s response polling, `handleStartListener()`/`handleStopListener()` with `setInterval(pollOnce, 5000)`, deduplication Sets, v0.4 banner with agent account ID display | 5 |
 | `docs/hedera-migration-blueprint.md` | **Modified** — Extended to 6 days, new Day 5 (HCS-10 CLI integration), old Day 5 → Day 6, external package evaluation table, key decisions #1-4, updated milestones, bumped to v3.8 | 5 |
+| `agent/hol-registry.js` | **Modified** — Fixed `register-index` auth: replaced broken `authenticateWithLedgerCredentials()` with low-level `createLedgerChallenge` → base64 sign → `verifyLedgerChallenge` (with `network` + `accountId`). Replaced direct API credit purchase with SDK `ensureCreditsForRegistration` + `purchaseCreditsWithHbar`. Added `profile.type: 1` (AI_AGENT). Clear mainnet-only error message for HBAR payments. | 5 |
+| `docs/hedera-migration-blueprint.md` | **Modified** — Search index registration deferred to mainnet, v3.9 changelog, updated asset table for `hol-registry.js` | 5 |
+| `agent/plugins/annuity-plugin.js` | **Created** — LangChain plugin: 9 annuity tools (create, execute, transfer, redeem, status, balances, list, transactions, health) wrapping ImperiumAPI endpoints | 5+ |
+| `agent/plugins/hcs10-plugin.js` | **Created** — LangChain plugin: 6 HCS-10 tools (list agents, connect, send skill, show connections, start/stop listener) | 5+ |
+| `agent/llm-agent.js` | **Created** — LLM agent module: `@langchain/anthropic` (Claude Haiku 4.5) + `hedera-agent-kit` query plugins + custom plugins. Tool-calling loop with conversation history. System prompt with AusCM domain context. | 5+ |
+| `agent/cli-agent.js` | **Modified** — v0.4 → v0.5. Dual mode: LLM (Claude + hedera-agent-kit) when `ANTHROPIC_API_KEY` set, regex fallback otherwise. `--no-llm` flag. Updated banner, help text. | 5+ |
+| `package.json` | **Modified** — Added `hedera-agent-kit`, `@langchain/anthropic`, `@langchain/core`, `langchain` | 5+ |
+| `.env.example` | **Modified** — Added `ANTHROPIC_API_KEY` documentation | 5+ |
+| `test/annuity/06-smoke.fullcycle.test.js` | **Modified** — Added conditional LLM agent test block (4 tests, skipped without API key) | 5+ |
 
 ---
 
@@ -757,6 +767,10 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 > **Note (v3.4):** Day 3 readiness research completed. HCS-10 standard fully documented at `hol.org/docs/standards/hcs-10` (not `docs.hedera.com` as previously assumed — those URLs return 404). Primary SDK is `@hashgraphonline/standards-sdk` (not `@hashgraph/sdk` alone). SDK is ESM-source but ships CJS dist — requires early validation. Added: Section 4.5 (HCS-10 Resource Reference with protocol architecture, operations, SDK quickstart), Section 4.6 (Day 3 Technical Risks), detailed Day 3 task breakdown with recommended sequence, expanded Day 4 tasks with HCS-10 operation specifics, 4 new risk entries in Section 7. Key finding: `HCS10Client.create()` creates 4 Hedera resources per agent (account, inbound topic, outbound topic, HCS-11 profile). HCS-26 Skill Registry identified as alternative to embedding skills in HCS-11 profile.
 >
 > **Note (v3.8):** Schedule extended to 6 days. Current Day 5 (Demo Recording + Buffer) moved to Day 6. New Day 5: CLI Agent v0.4 — HCS-10 Integration. Adds `list agents`, `connect to <agent>`, `send skill <name>`, and `show connections` commands to the interactive CLI by bridging `hol-registry.js` into `cli-agent.js`. External package evaluation: (1) `hedera-agent-kit` — LLM-powered Hedera framework, does NOT integrate with HCS-10/HOL Registry, not needed for Day 5, deferred to Future Milestones as potential LLM upgrade path; (2) `@hol-org/ai-sdk-registry-broker` — package does not exist (404 GitHub, 403 npm), HOL Registry Broker functionality already provided by `@hashgraphonline/standards-sdk@0.1.165`. AusCM Agent Intelligence milestone bumped from v0.4 to v0.5 (v0.4 now used for HCS-10 CLI integration).
+>
+> **Note (v3.9):** HOL REST Search Index registration investigated and deferred to mainnet. Root cause: the `authenticateWithLedgerCredentials()` bundled method fails ("This operation was aborted"); fixed by using low-level `createLedgerChallenge` → base64-encoded signature → `verifyLedgerChallenge` (requires `network` + `accountId` params). Authentication succeeds and returns valid API key. Credit purchase via `purchaseCreditsWithHbar` fails because the HOL backend submits HBAR transfers through mainnet Hedera nodes only (e.g. `0.0.23`, `0.0.27`) — testnet accounts fail with `PAYER_ACCOUNT_NOT_FOUND`. The `register-index` command in `hol-registry.js` is production-ready for mainnet; on testnet it exits gracefully with an actionable error. Profile schema fix: added `type: 1` (AI_AGENT) required field.
+>
+> **Note (v4.0):** Phase 2 Task 10 complete — LLM integration. Hybrid architecture: `@langchain/anthropic` provides Claude Haiku 4.5 as the NLU layer; `hedera-agent-kit` provides Hedera-native query tools (account, token, consensus, EVM, Mirror Node); custom LangChain plugins (`annuity-plugin.js`, `hcs10-plugin.js`) wrap ImperiumAPI and HCS-10 operations. CLI agent v0.5 operates in dual mode: LLM-powered when `ANTHROPIC_API_KEY` is set (natural language for all commands + Hedera queries), regex fallback otherwise. `--no-llm` flag forces regex mode. System prompt embeds AusCM domain context (ACT/365, T+2, ASIC compliance). 4 new conditional LLM tests added (skipped without API key). Key decision: used `ChatAnthropic.bindTools()` + manual tool-call loop rather than full LangChain agent executor — simpler, more control over conversation flow.
 
 ---
 
