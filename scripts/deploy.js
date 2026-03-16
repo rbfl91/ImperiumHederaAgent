@@ -13,7 +13,7 @@ async function main() {
 
   // Deploy ImperiumStableCoin
   const ImperiumStableCoin = await hre.ethers.getContractFactory("ImperiumStableCoin");
-  const stablecoin = await ImperiumStableCoin.deploy();
+  const stablecoin = await ImperiumStableCoin.deploy(); // Now eAUD/ImperiumAUD
   await stablecoin.waitForDeployment();
   const stablecoinAddress = await stablecoin.getAddress();
   console.log("ImperiumStableCoin deployed to:", stablecoinAddress);

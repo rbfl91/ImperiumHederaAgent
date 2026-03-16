@@ -1,8 +1,8 @@
 # Imperium Markets — Hedera Testnet Deployment Plan
 
-**Version:** 4.0
-**Date:** 2026-03-14
-**Target:** Deploy AnnuityToken to Hedera Testnet + HOL Registry Broker agent demo + CLI Agent v0.5 (LLM-powered) in 6 days
+**Version:** 5.0
+**Date:** 2026-03-16
+**Target:** Deploy AnnuityToken to Hedera Testnet + HOL Registry Broker agent demo + CLI Agent v0.5 (LLM-powered) + Conversational RFQ Web UI in 7 days
 **Authors:** Imperium Markets Engineering
 
 ---
@@ -20,6 +20,9 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 - CLI agent v0.4 with HCS-10 commands: discover agents, establish connections, invoke skills on remote agents, view connections, and operate in listener mode (receive + execute skill requests from other agents) — all from the interactive terminal.
 - CLI agent and demo bot running against Hedera Testnet (not Ganache).
 - All existing Ganache-based tests still pass locally.
+- Browser-based conversational RFQ flow guided by the Imperium Agent.
+- Real-time LLM streaming via WebSocket.
+- On-chain deal execution from the web UI (Hedera Testnet or local Hardhat).
 
 ---
 
@@ -28,22 +31,29 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | Asset | Status |
 |-------|--------|
 | `contracts/AnnuityToken.sol` | ✅ Production-ready Solidity ^0.8.21 |
-| `contracts/ImperiumStableCoin.sol` | ✅ ERC-20 stablecoin (ImperiumUSD / iUSD) |
-| `api/imperium-api.js` | ✅ ImperiumAPI — 10 endpoints, full lifecycle, `--network` flag, Hedera finality/gas handling, `dotenv` + wallet loading for testnet single-account mode |
-| `agent/cli-agent.js` | ✅ v0.4, 17 intents (11 annuity/system + 6 HCS-10), HCS-10 listener mode, agent discovery, connection management, skill invocation |
+| `contracts/ImperiumStableCoin.sol` | ✅ ERC-20 stablecoin (ImperiumAUD / eAUD) |
+| `api/imperium-api.js` | ✅ ImperiumAPI — 10 endpoints, full lifecycle, `--network` flag, Hedera finality/gas handling, `dotenv` + wallet loading for testnet single-account mode, WebSocket server (`/ws/chat`), CORS, structured response parsing, static file serving (`web/dist/`) |
+| `agent/cli-agent.js` | ✅ v0.5, 17 intents (11 annuity/system + 6 HCS-10), HCS-10 listener mode, agent discovery, connection management, skill invocation, dual mode (LLM + regex fallback) |
 | `hardhat.config.js` | ✅ Solidity 0.8.21, Hardhat Network + localhost + `hederaTestnet` (chainId 296) |
 | `scripts/deploy.js` | ✅ Deploys ImperiumStableCoin + AnnuityToken, saves to `deployments/`, short maturity for Hedera |
 | `config/networks.js` | ✅ Network config loader — local + hedera-testnet, deployment save/load, explorer URLs |
 | `test/annuity/01–05*.test.js` | ✅ 5 contract test files (migrated to ethers.js v6) |
+| `web/src/components/Sidebar/WalletPanel.jsx` | ✅ WalletPanel — displays HBAR/ETH, stablecoins (eAUD), annuity assets, auto-refresh, network indicator |
+| `web/` | ✅ Web UI improvements — 3-column layout, real-time chat, investment details, Imperium branding, auto-refresh wallet balances |
 | `test/annuity/01-annuity.api.flow.test.js` | ✅ API integration test (fetch-based, uses 127.0.0.1) |
 | `test/annuity/06-smoke.fullcycle.test.js` | ✅ 27 tests (API + agent parser, migrated to describe()) |
 | `test/annuity/demo-bot.js` | ✅ Visual demo bot — `--network` flag, 3-min testnet timeouts |
 | `start.sh` | ✅ Full stack launcher — `./start.sh` (local) or `./start.sh --network hedera-testnet` |
 | `.env.example` | ✅ Template for Hedera credentials with setup instructions |
 | `.gitignore` | ✅ Excludes node_modules, .env, cache/, artifacts/, deployments/ |
-| `package.json` | ✅ Scripts: `deploy:hedera`, `start:hedera`, `demo`, `demo:hedera` |
+| `package.json` | ✅ Scripts: `deploy:hedera`, `start:hedera`, `demo`, `demo:hedera`, `build:web`, `dev:web`; deps include `ws`, `cors` |
 | `agent/hol-registry.js` | ✅ HOL Registry Broker module — `create`, `status`, `connect`, `listen`, `register-index` commands, skill-to-API mapping (7 skills), inbound polling, auto-accept connections, skill execution + response, auto key type detection, low-level ledger auth (challenge → base64 sign → verify) |
 | `agent/test-a2a.js` | ✅ Agent-to-agent communication test — creates Test Requester agent (cached), connects via HCS-10, invokes skill, reads response |
+| `agent/llm-agent.js` | ✅ LLM agent module — `@langchain/anthropic` (Claude Haiku 4.5), custom plugins, session factory (`createSession()`) for per-WebSocket sessions, streaming support, backward-compatible singleton for CLI |
+| `agent/plugins/rfq-plugin.js` | ✅ RFQ quotes tool (`get_annuity_quotes`) + 4-stage system prompt for web UI RFQ flow (Introduction → Investment Summary → Beneficiary Info → Final Review) |
+| `web/` | ✅ React + Vite frontend — 3-column layout (deal progress stepper, conversational chat, investment details), ~15 files |
+| `web/src/context/RfqContext.jsx` | ✅ React state management — messages, stage, quotes, streaming state |
+| `web/src/hooks/useWebSocket.js` | ✅ WebSocket connection + streaming handler for real-time LLM token delivery |
 | `deployments/hol-agent.json` | ✅ Agent identity state — account `0.0.8218785`, inbound/outbound/profile topic IDs, 7 skills |
 | `truffle-config.js` + `migrations/` | ✅ **Deleted** — fully replaced by Hardhat |
 | `build/` (Truffle artifacts) | ✅ **Deleted** — replaced by `artifacts/` (gitignored) |
@@ -51,7 +61,7 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 
 ---
 
-## 3) Migration Plan (5-day schedule)
+## 3) Migration Plan (7-day schedule)
 
 ### Day 1 — Hardhat Setup + Local Parity ✅ COMPLETED
 
@@ -305,14 +315,40 @@ The agent is registered **on-chain** (HCS-10 Guarded Registry on Hedera testnet)
 
 ---
 
-### Day 6 — Demo Recording + Buffer
+### Day 6 — Conversational RFQ Web UI ✅ COMPLETED
 
-**Goal:** Record final demo showcasing agent on Hedera Testnet with HOL Registry Broker integration and CLI v0.4 HCS-10 commands.
+**Goal:** Build a browser-based chat interface where the Imperium Agent guides investors through an annuity RFQ flow with real-time streaming and on-chain execution.
+
+| # | Task | Status | Details |
+|---|------|--------|---------|
+| 1 | React + Vite scaffold in `web/` | ✅ | 3-column layout: deal progress stepper, conversational chat, investment details |
+| 2 | WebSocket chat server on `/ws/chat` | ✅ | Per-connection agent sessions via `createSession()` factory |
+| 3 | RFQ plugin with `get_annuity_quotes` tool | ✅ | 4 Australian providers with realistic rates |
+| 4 | RFQ system prompt defining 4-stage flow | ✅ | Introduction → Investment Summary → Beneficiary Info → Final Review |
+| 5 | Structured data blocks protocol | ✅ | `~~~rfq-*~~~` / `` ```rfq-*``` `` fences for rich UI rendering (stage, quotes, details, chips, investment card) |
+| 6 | Session factory in `llm-agent.js` | ✅ | `createSession()` — independent sessions per WebSocket, backward-compatible singleton for CLI |
+| 7 | LLM response streaming | ✅ | Tokens stream via WebSocket in real time |
+| 8 | Typewriter effect for agent messages | ✅ | Smooth token-by-token rendering in the browser |
+| 9 | Live quotes comparison table | ✅ | SELECT buttons for provider selection |
+| 10 | Investment success card | ✅ | On-chain data display (contract addresses, tx count) |
+| 11 | Suggestion chips | ✅ | LLM-generated contextual quick-reply buttons |
+| 12 | Imperium Markets branding | ✅ | Logo, colors #f35d00/#f8c200/#0f101d, Roboto font |
+| 13 | Performance optimizations | ✅ | Streaming (70% latency reduction), history trimming (20→50 messages), system prompt condensed (~60%) |
+| 14 | Content block format handling | ✅ | String vs array handling for LangChain Anthropic streaming compatibility |
+| 15 | Production + Development modes | ✅ | Production: Express serves `web/dist/` on port 4000. Development: Vite on 5173 with proxy |
+
+**Gate:** ✅ Full RFQ flow working in browser — greet → collect details → show quotes → select provider → beneficiary → confirm → on-chain execution → success card.
+
+---
+
+### Day 7 — Demo Recording + Buffer
+
+**Goal:** Record final demo showcasing agent on Hedera Testnet with HOL Registry Broker integration, CLI v0.4 HCS-10 commands, and web UI RFQ flow.
 
 | Task | Details |
 |------|---------|
-| Final dry run | Fresh deploy → agent registration (HCS-10 `create()`) → skill discovery → full lifecycle via HCS-10 connection → CLI agent HCS-10 commands |
-| Record demo video | Screen recording: (1) agent registration on HOL Registry Broker, (2) skill discovery via `RegistryBrokerClient.search()`, (3) agent-to-agent lifecycle on Hedera Testnet via Connection Topics, (4) CLI agent v0.4 HCS-10 commands (discover, connect, send skill, show connections) |
+| Final dry run | Fresh deploy → agent registration (HCS-10 `create()`) → skill discovery → full lifecycle via HCS-10 connection → CLI agent HCS-10 commands → web UI RFQ flow |
+| Record demo video | Screen recording: (1) agent registration on HOL Registry Broker, (2) skill discovery via `RegistryBrokerClient.search()`, (3) agent-to-agent lifecycle on Hedera Testnet via Connection Topics, (4) CLI agent v0.4 HCS-10 commands (discover, connect, send skill, show connections), (5) web UI conversational RFQ flow with streaming |
 | Write demo summary | 1-page doc: what was shown, contract addresses, agent account ID, inbound/outbound topic IDs, tx hashes, HOL Registry entries |
 | Commit + push | All changes committed, clean repo |
 | Prepare Q&A notes | Common questions: costs, mainnet readiness, HTS migration path, HCS-10 production considerations |
@@ -716,6 +752,14 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 | `package.json` | **Modified** — Added `hedera-agent-kit`, `@langchain/anthropic`, `@langchain/core`, `langchain` | 5+ |
 | `.env.example` | **Modified** — Added `ANTHROPIC_API_KEY` documentation | 5+ |
 | `test/annuity/06-smoke.fullcycle.test.js` | **Modified** — Added conditional LLM agent test block (4 tests, skipped without API key) | 5+ |
+| `agent/llm-agent.js` | **Modified** — Session factory (`createSession()`), streaming support, content block format handling (string vs array), history trim 20→50 messages | 6 |
+| `agent/plugins/rfq-plugin.js` | **Created** — RFQ quotes tool (`get_annuity_quotes`) + 4-stage system prompt for web UI | 6 |
+| `api/imperium-api.js` | **Modified** — WebSocket server (`/ws/chat`), CORS, structured response parser, static file serving (`web/dist/`), streaming handler | 6 |
+| `web/` (entire directory) | **Created** — React + Vite app (~15 files): 3-column layout, chat, stepper, investment details, suggestion chips, quotes table, success card | 6 |
+| `package.json` | **Modified** — Added `ws`, `cors` deps; added `build:web`, `dev:web` scripts | 6 |
+| `.gitignore` | **Modified** — Added `web/dist/` | 6 |
+| `start.sh` | **Modified** — Web UI info | 6 |
+| `README.md` | **Modified** — Added Web UI section | 6 |
 
 ---
 
@@ -738,6 +782,10 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 | SDK dependency weight + version conflicts | Unexpected breakage | SDK brings `@hashgraph/sdk`, `ethers`, `viem`, `axios` as transitive deps. Run `npm ls` after install, pin exact version | ✅ Mitigated — installed `@hashgraphonline/standards-sdk@0.1.165`, no conflicts (Day 3) |
 | SDK pre-1.0 instability | API surface may shift | Current version `0.1.158-canary.0`. Pin with `--save-exact`. Check for stable tag before install | ✅ Mitigated — pinned `0.1.165`, API surface stable across Day 3 tasks (Day 3) |
 | HBAR cost for agent creation | Agent registration fails | 4-6 txs per agent. Testnet HBAR is free — check balance via portal. SDK supports resumable creation | ✅ Mitigated — agent created successfully; resumable registration handled mid-run timeout (Day 3) |
+| LLM streaming content format (array vs string) | Chat messages render incorrectly or crash | LangChain Anthropic streaming returns content blocks as array or string depending on context | ✅ Mitigated — `extractChunkText()` handles both formats (Day 6) |
+| LLM not emitting structured blocks consistently | Web UI misses quotes/stage/chips data | LLM may use different fence styles or omit blocks | ✅ Mitigated — supports both `~~~` and `` ``` `` fences, strong prompt instruction (Day 6) |
+| Stale suggestion chips | UI shows irrelevant quick-reply options | Hardcoded fallback chips become stale as conversation progresses | ✅ Mitigated — removed hardcoded fallbacks, LLM-only chips (Day 6) |
+| Duplicate quotes table after selection | Confusing UI with repeated quote tables | Quotes block re-rendered on every message containing quotes data | ✅ Mitigated — only render quotes on first message with quotes (Day 6) |
 
 ---
 
@@ -745,8 +793,11 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 
 | Milestone | Timeline | Scope |
 |-----------|----------|-------|
-| **AusCM Agent Intelligence (v0.5)** | 1-2 weeks | Yield calculator, compliance summaries, AUD formatting, regulatory checkpoints, audit export. CLI agent HCS-10 awareness promoted to Day 5 (v0.4). |
-| **LLM-Powered Agent (evaluate hedera-agent-kit)** | 2-4 weeks | Evaluate `hedera-agent-kit` (LangChain integration, plugin architecture) for natural language → blockchain transaction flow. Would replace rule-based intent parser with LLM-powered NLU. Assess: latency, cost, model dependency, value vs current approach. |
+| **AusCM Agent Intelligence (v0.5)** | 1-2 weeks | Yield calculator, compliance summaries, AUD formatting, regulatory checkpoints, audit export. CLI agent HCS-10 awareness promoted to Day 5 (v0.4). Web RFQ flow is now the primary interface for investor interactions. |
+| **LLM-Powered Agent** | — | ✅ DONE (v4.0) — `@langchain/anthropic` (Claude Haiku 4.5) + `hedera-agent-kit` + custom plugins. Dual mode (LLM + regex fallback). |
+| **Response streaming optimization** | 1-2 weeks | Memoize markdown rendering, CSS animations for smoother typewriter effect |
+| **Multi-session persistence** | 2-3 weeks | Database-backed session storage for conversation history across reconnections |
+| **HBAR balance display in sidebar** | 1 week | Show connected wallet HBAR balance in the web UI sidebar |
 | **Production Hardening** | 3-6 weeks | DB persistence, idempotency, observability, security |
 | **ClawHub Skill Publishing** | 1-2 weeks | Publish annuity skills to ClawHub marketplace, discovery UX. Evaluate HCS-26 Skill Registry for on-chain skill discoverability. |
 | **ASX/CHESS Integration Design** | 2-4 weeks | Settlement bridge design, T+2 workflow, NPP/PayTo payment rails |
@@ -766,11 +817,13 @@ All 7 test files have been migrated from Truffle APIs to Hardhat/ethers.js v6.
 
 > **Note (v3.4):** Day 3 readiness research completed. HCS-10 standard fully documented at `hol.org/docs/standards/hcs-10` (not `docs.hedera.com` as previously assumed — those URLs return 404). Primary SDK is `@hashgraphonline/standards-sdk` (not `@hashgraph/sdk` alone). SDK is ESM-source but ships CJS dist — requires early validation. Added: Section 4.5 (HCS-10 Resource Reference with protocol architecture, operations, SDK quickstart), Section 4.6 (Day 3 Technical Risks), detailed Day 3 task breakdown with recommended sequence, expanded Day 4 tasks with HCS-10 operation specifics, 4 new risk entries in Section 7. Key finding: `HCS10Client.create()` creates 4 Hedera resources per agent (account, inbound topic, outbound topic, HCS-11 profile). HCS-26 Skill Registry identified as alternative to embedding skills in HCS-11 profile.
 >
-> **Note (v3.8):** Schedule extended to 6 days. Current Day 5 (Demo Recording + Buffer) moved to Day 6. New Day 5: CLI Agent v0.4 — HCS-10 Integration. Adds `list agents`, `connect to <agent>`, `send skill <name>`, and `show connections` commands to the interactive CLI by bridging `hol-registry.js` into `cli-agent.js`. External package evaluation: (1) `hedera-agent-kit` — LLM-powered Hedera framework, does NOT integrate with HCS-10/HOL Registry, not needed for Day 5, deferred to Future Milestones as potential LLM upgrade path; (2) `@hol-org/ai-sdk-registry-broker` — package does not exist (404 GitHub, 403 npm), HOL Registry Broker functionality already provided by `@hashgraphonline/standards-sdk@0.1.165`. AusCM Agent Intelligence milestone bumped from v0.4 to v0.5 (v0.4 now used for HCS-10 CLI integration).
+> **Note (v3.8):** Schedule extended to 6 days (later 7 in v5.0). Current Day 5 (Demo Recording + Buffer) moved to Day 6 (later Day 7). New Day 5: CLI Agent v0.4 — HCS-10 Integration. Adds `list agents`, `connect to <agent>`, `send skill <name>`, and `show connections` commands to the interactive CLI by bridging `hol-registry.js` into `cli-agent.js`. External package evaluation: (1) `hedera-agent-kit` — LLM-powered Hedera framework, does NOT integrate with HCS-10/HOL Registry, not needed for Day 5, deferred to Future Milestones as potential LLM upgrade path; (2) `@hol-org/ai-sdk-registry-broker` — package does not exist (404 GitHub, 403 npm), HOL Registry Broker functionality already provided by `@hashgraphonline/standards-sdk@0.1.165`. AusCM Agent Intelligence milestone bumped from v0.4 to v0.5 (v0.4 now used for HCS-10 CLI integration).
 >
 > **Note (v3.9):** HOL REST Search Index registration investigated and deferred to mainnet. Root cause: the `authenticateWithLedgerCredentials()` bundled method fails ("This operation was aborted"); fixed by using low-level `createLedgerChallenge` → base64-encoded signature → `verifyLedgerChallenge` (requires `network` + `accountId` params). Authentication succeeds and returns valid API key. Credit purchase via `purchaseCreditsWithHbar` fails because the HOL backend submits HBAR transfers through mainnet Hedera nodes only (e.g. `0.0.23`, `0.0.27`) — testnet accounts fail with `PAYER_ACCOUNT_NOT_FOUND`. The `register-index` command in `hol-registry.js` is production-ready for mainnet; on testnet it exits gracefully with an actionable error. Profile schema fix: added `type: 1` (AI_AGENT) required field.
 >
 > **Note (v4.0):** Phase 2 Task 10 complete — LLM integration. Hybrid architecture: `@langchain/anthropic` provides Claude Haiku 4.5 as the NLU layer; `hedera-agent-kit` provides Hedera-native query tools (account, token, consensus, EVM, Mirror Node); custom LangChain plugins (`annuity-plugin.js`, `hcs10-plugin.js`) wrap ImperiumAPI and HCS-10 operations. CLI agent v0.5 operates in dual mode: LLM-powered when `ANTHROPIC_API_KEY` is set (natural language for all commands + Hedera queries), regex fallback otherwise. `--no-llm` flag forces regex mode. System prompt embeds AusCM domain context (ACT/365, T+2, ASIC compliance). 4 new conditional LLM tests added (skipped without API key). Key decision: used `ChatAnthropic.bindTools()` + manual tool-call loop rather than full LangChain agent executor — simpler, more control over conversation flow.
+>
+> **Note (v5.0):** Web UI complete. React + Vite frontend with 3-column layout (deal progress stepper, conversational chat, investment details). WebSocket-based real-time chat with LLM streaming. Per-connection agent sessions via `createSession()` factory. Structured data protocol (`~~~rfq-*~~~`) enables rich UI: live quotes tables, suggestion chips, investment success cards. RFQ plugin provides `get_annuity_quotes` tool (4 Australian providers) and 4-stage system prompt. On-chain deal execution (create_annuity + execute_deal) triggered from chat on investment confirmation. Performance optimized: streaming reduces perceived latency ~70%, history trimming increased to 50 messages (~12-15 turns), system prompt condensed ~60%. Imperium Markets branding applied (logo, orange/gold/navy theme). README updated with Web UI section.
 
 ---
 

@@ -14,11 +14,8 @@ const port = process.env.PORT || 4000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// Serve built frontend (production)
-const webDistPath = path.join(__dirname, '../web/dist');
-if (fs.existsSync(webDistPath)) {
-  app.use(express.static(webDistPath));
-}
+// NOTE: Static file serving is mounted at the bottom of this file,
+// after all API routes, so API endpoints take priority over index.html.
 
 // ── Network selection ────────────────────────────────────────────────
 // Usage:  node api/imperium-api.js --network hedera-testnet
@@ -453,6 +450,93 @@ app.get('/transactions', (req, res) => {
   res.json({ transactions: txHistory, count: txHistory.length });
 });
 
+// 10) Wallet overview — native balance, stablecoins, issued assets
+app.get('/wallet', async (req, res) => {
+  try {
+    let accounts = await web3.eth.getAccounts();
+    if (accounts.length === 0 && web3.eth.accounts.wallet.length > 0) {
+      accounts = [web3.eth.accounts.wallet[0].address];
+    }
+    if (accounts.length === 0) {
+      return res.status(503).json({ error: 'No wallet available' });
+    }
+
+    const address = accounts[0];
+    const isHedera = NET.name === 'hedera-testnet';
+
+    // Native balance (ETH on local, HBAR on Hedera)
+    const nativeWei = await web3.eth.getBalance(address);
+    const nativeBalance = web3.utils.fromWei(nativeWei, 'ether');
+    const nativeSymbol = isHedera ? 'HBAR' : 'ETH';
+
+    // Stablecoin balances across all deployed deals
+    const stablecoins = new Map(); // address → { symbol, name, balance }
+    const assets = []; // issued annuity contracts
+
+    for (const [correlationId, deal] of Object.entries(deals)) {
+      // Collect stablecoin balance (deduplicate by address)
+      if (deal.stablecoinAddress && !stablecoins.has(deal.stablecoinAddress)) {
+        try {
+          const sc = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
+          const bal = await sc.methods.balanceOf(address).call();
+          const symbol = await sc.methods.symbol().call().catch(() => 'iUSD');
+          const name = await sc.methods.name().call().catch(() => 'ImperiumStableCoin');
+          stablecoins.set(deal.stablecoinAddress, {
+            address: deal.stablecoinAddress,
+            symbol,
+            name,
+            balance: bal.toString(),
+          });
+        } catch { /* skip inaccessible contracts */ }
+      }
+
+      // Collect annuity asset info
+      if (deal.annuityAddress) {
+        try {
+          const ann = new web3.eth.Contract(AnnuityAbi, deal.annuityAddress);
+          const currentOwner = await ann.methods.currentOwner().call();
+          const isIssued = await ann.methods.issued().call();
+          const isExpired = await ann.methods.expired().call();
+
+          assets.push({
+            correlationId,
+            address: deal.annuityAddress,
+            faceValue: deal.faceValue?.toString(),
+            interestRate: deal.interestRate,
+            status: deal.status,
+            currentOwner,
+            issued: isIssued === true || isIssued === 'true',
+            expired: isExpired === true || isExpired === 'true',
+            coupons: deal.couponValues?.length || 0,
+            explorerUrl: NET.explorer ? `${NET.explorer}/contract/${deal.annuityAddress}` : undefined,
+          });
+        } catch { /* skip inaccessible contracts */ }
+      }
+    }
+
+    const walletData = {
+      address,
+      network: NET.name,
+      chainId: NET.chainId,
+      explorer: NET.explorer || null,
+      native: {
+        symbol: nativeSymbol,
+        balance: nativeBalance,
+      },
+      stablecoins: Array.from(stablecoins.values()),
+      assets,
+    };
+
+    if (NET.explorer) {
+      walletData.explorerUrl = `${NET.explorer}/account/${address}`;
+    }
+
+    res.json(walletData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── WebSocket chat server ────────────────────────────────────────────
 const { WebSocketServer } = require('ws');
 const { createSession } = require('../agent/llm-agent');
@@ -557,9 +641,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-module.exports = app;
-
-// Add simple health and root endpoints for quick checks
+// ── Health & Root (API info) ─────────────────────────────────────────
 app.get('/health', async (req, res) => {
   try {
     const rpcListening = await web3.eth.net.isListening();
@@ -569,7 +651,11 @@ app.get('/health', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => {
+app.get('/', (req, res, next) => {
+  // If client wants JSON (curl, fetch, tests), return endpoint list.
+  // Otherwise fall through to static middleware (browser gets index.html).
+  if (req.accepts('html') && !req.accepts('json')) return next();
+  if (req.headers['user-agent'] && /mozilla/i.test(req.headers['user-agent']) && !req.query.json) return next();
   res.json({
     service: 'ImperiumAPI',
     network: NET.name,
@@ -584,7 +670,19 @@ app.get('/', (req, res) => {
       { method: 'GET', path: '/deal/:correlationId/transactions' },
       { method: 'GET', path: '/deals' },
       { method: 'GET', path: '/transactions' },
+      { method: 'GET', path: '/wallet' },
       { method: 'GET', path: '/health' }
     ]
   });
 });
+
+// ── Static files + SPA fallback (must be AFTER all API routes) ──────
+const webDistPath = path.join(__dirname, '../web/dist');
+if (fs.existsSync(webDistPath)) {
+  app.use(express.static(webDistPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
+}
+
+module.exports = app;
