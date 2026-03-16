@@ -4,14 +4,15 @@
  * Uses @langchain/anthropic for Claude integration and hedera-agent-kit's built-in
  * Hedera plugins alongside custom Imperium annuity and HCS-10 plugins.
  *
- * Exported function `processInput()` handles one user turn: sends input to Claude,
- * executes any tool calls, and returns a formatted response string.
+ * Supports two modes:
+ *   1. Singleton (CLI): init() + processInput() — backward-compatible with cli-agent.js
+ *   2. Session factory (Web): createSession() — each call returns an independent session
  */
 'use strict';
 
 const { ChatAnthropic } = require('@langchain/anthropic');
 const { DynamicStructuredTool } = require('@langchain/core/tools');
-const { HumanMessage, AIMessage, SystemMessage } = require('@langchain/core/messages');
+const { HumanMessage, AIMessage, SystemMessage, ToolMessage } = require('@langchain/core/messages');
 const {
   HederaLangchainToolkit,
   coreAccountQueryPlugin,
@@ -26,7 +27,7 @@ const { Client, PrivateKey } = require('@hashgraph/sdk');
 const { annuityPlugin } = require('./plugins/annuity-plugin');
 const { hcs10Plugin } = require('./plugins/hcs10-plugin');
 
-// ── System prompt ───────────────────────────────────────────────────
+// ── Default system prompt ────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are the Imperium Annuity Agent — an Australian Capital Markets specialist \
 operating on the Hedera network. You manage structured annuity products (AnnuityToken smart contracts) \
@@ -49,34 +50,9 @@ When responding:
 If the user says "help", list available commands. If they say "exit" or "quit", respond with a goodbye message.
 If a tool requires a correlationId and the user hasn't provided one, ask them for it or suggest they create a deal first.`;
 
-// ── Module state ────────────────────────────────────────────────────
+// ── Tool builder helpers ─────────────────────────────────────────────
 
-let model = null;
-let langchainTools = [];
-let conversationHistory = [];
-
-/**
- * Initialize the LLM agent. Call once at startup.
- *
- * @param {object} opts
- * @param {string} opts.apiKey - Anthropic API key
- * @param {object} opts.agentState - HOL agent state from deployments/hol-agent.json
- * @param {object} [opts.hcsContext] - HCS-10 context callbacks (hcsConnect, hcsSendSkill, etc.)
- * @returns {boolean} true if initialized successfully
- */
-function init({ apiKey, agentState, hcsContext }) {
-  if (!apiKey) return false;
-
-  // 1. Create Claude model
-  model = new ChatAnthropic({
-    model: 'claude-haiku-4-5-20251001',
-    anthropicApiKey: apiKey,
-    maxTokens: 1024,
-    temperature: 0,
-  });
-
-  // 2. Build hedera-agent-kit tools (query-only plugins for safety)
-  let hederaTools = [];
+function buildHederaTools(agentState) {
   try {
     if (agentState && agentState.agentAccountId && agentState.agentPrivateKey) {
       const keyStr = agentState.agentPrivateKey;
@@ -102,180 +78,252 @@ function init({ apiKey, agentState, hcsContext }) {
           },
         },
       });
-      hederaTools = toolkit.getTools();
+      return toolkit.getTools();
     }
   } catch (err) {
     console.error(`[LLM] hedera-agent-kit init warning: ${err.message}`);
-    // Continue without Hedera tools — annuity + HCS-10 tools still work
   }
-
-  // 3. Build custom plugin tools as DynamicStructuredTool instances
-  const customTools = [];
-
-  // Annuity plugin tools
-  for (const toolDef of annuityPlugin.tools({})) {
-    customTools.push(
-      new DynamicStructuredTool({
-        name: toolDef.method,
-        description: toolDef.description,
-        schema: toolDef.parameters,
-        func: async (input) => {
-          try {
-            return await toolDef.execute(input);
-          } catch (err) {
-            return JSON.stringify({ error: err.message });
-          }
-        },
-      })
-    );
-  }
-
-  // HCS-10 plugin tools
-  for (const toolDef of hcs10Plugin.tools({})) {
-    const ctx = hcsContext || {};
-    customTools.push(
-      new DynamicStructuredTool({
-        name: toolDef.method,
-        description: toolDef.description,
-        schema: toolDef.parameters,
-        func: async (input) => {
-          try {
-            return await toolDef.execute(input, ctx);
-          } catch (err) {
-            return JSON.stringify({ error: err.message });
-          }
-        },
-      })
-    );
-  }
-
-  // 4. Combine all tools
-  langchainTools = [...customTools, ...hederaTools];
-
-  // 5. Initialize conversation with system prompt
-  conversationHistory = [new SystemMessage(SYSTEM_PROMPT)];
-
-  return true;
+  return [];
 }
 
+function buildPluginTools(plugin, context) {
+  return plugin.tools({}).map((toolDef) =>
+    new DynamicStructuredTool({
+      name: toolDef.method,
+      description: toolDef.description,
+      schema: toolDef.parameters,
+      func: async (input) => {
+        try {
+          return await toolDef.execute(input, context);
+        } catch (err) {
+          return JSON.stringify({ error: err.message });
+        }
+      },
+    })
+  );
+}
+
+// ── Session factory ──────────────────────────────────────────────────
+
 /**
- * Process a single user input turn.
+ * Create an independent LLM agent session.
  *
- * Sends the input to Claude with all tools bound, executes any tool calls,
- * and returns the final text response.
+ * Each session has its own Claude model instance, tools, and conversation
+ * history. Use this for the web frontend (one session per WebSocket connection).
  *
- * @param {string} input - User's natural language input
- * @returns {Promise<{text: string, toolCalls: Array}>}
+ * @param {object} opts
+ * @param {string} opts.apiKey - Anthropic API key
+ * @param {object} [opts.agentState] - HOL agent state from deployments/hol-agent.json
+ * @param {object} [opts.hcsContext] - HCS-10 context callbacks
+ * @param {string} [opts.systemPrompt] - Override the default system prompt
+ * @param {Array}  [opts.extraPlugins] - Additional plugins (e.g. rfq-plugin)
+ * @returns {object} Session with { processInput, resetConversation, isReady, getToolCount }
  */
-async function processInput(input) {
-  if (!model) {
-    return { text: 'LLM agent not initialized. Check ANTHROPIC_API_KEY.', toolCalls: [] };
+function createSession({ apiKey, agentState, hcsContext, systemPrompt, extraPlugins }) {
+  if (!apiKey) {
+    return {
+      processInput: async () => ({ text: 'LLM agent not initialized. Check ANTHROPIC_API_KEY.', toolCalls: [] }),
+      resetConversation: () => {},
+      isReady: () => false,
+      getToolCount: () => 0,
+    };
   }
 
-  const { ToolMessage } = require('@langchain/core/messages');
+  const prompt = systemPrompt || SYSTEM_PROMPT;
 
-  // Snapshot history length so we can rollback on error
-  const historySnapshot = conversationHistory.length;
+  // 1. Create Claude model
+  const model = new ChatAnthropic({
+    model: 'claude-haiku-4-5-20251001',
+    anthropicApiKey: apiKey,
+    maxTokens: 1024,
+    temperature: 0,
+  });
 
-  try {
-    // Add user message
-    conversationHistory.push(new HumanMessage(input));
+  // 2. Build tools
+  const hederaTools = buildHederaTools(agentState);
+  const annuityTools = buildPluginTools(annuityPlugin, {});
+  const hcs10Tools = buildPluginTools(hcs10Plugin, hcsContext || {});
 
-    // Bind tools and invoke
-    const modelWithTools = model.bindTools(langchainTools);
+  let extraTools = [];
+  if (extraPlugins) {
+    for (const plugin of extraPlugins) {
+      extraTools = extraTools.concat(buildPluginTools(plugin, {}));
+    }
+  }
 
-    let response = await modelWithTools.invoke(conversationHistory);
-    conversationHistory.push(response);
+  const langchainTools = [...annuityTools, ...hcs10Tools, ...extraTools, ...hederaTools];
 
-    const allToolCalls = [];
+  // 3. Conversation history
+  let conversationHistory = [new SystemMessage(prompt)];
 
-    // Tool call loop — execute tools and feed results back until Claude gives a text response
-    while (response.tool_calls && response.tool_calls.length > 0) {
-      for (const toolCall of response.tool_calls) {
-        allToolCalls.push(toolCall);
+  // ── Streaming helper ────────────────────────────────────────────
 
-        // Find and execute the tool
-        const tool = langchainTools.find(
-          (t) => t.name === toolCall.name
-        );
+  /** Extract text from a chunk's content (may be a string or array of content blocks). */
+  function extractChunkText(content) {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === 'text' && block.text) return block.text;
+      }
+    }
+    return '';
+  }
 
-        let result;
-        if (tool) {
-          try {
-            result = await tool.invoke(toolCall.args);
-          } catch (err) {
-            result = JSON.stringify({ error: err.message });
+  async function streamModel(mdl, history, onToken) {
+    const stream = await mdl.stream(history);
+    let accumulated = null;
+
+    for await (const chunk of stream) {
+      const text = extractChunkText(chunk.content);
+      if (onToken && text.length > 0) {
+        onToken(text);
+      }
+      accumulated = accumulated ? accumulated.concat(chunk) : chunk;
+    }
+
+    return accumulated;
+  }
+
+  // ── Session methods ──────────────────────────────────────────────
+
+  /**
+   * Process user input. Pass opts.onToken callback to enable streaming.
+   */
+  async function processInput(input, { onToken } = {}) {
+    const historySnapshot = conversationHistory.length;
+
+    try {
+      conversationHistory.push(new HumanMessage(input));
+      const modelWithTools = model.bindTools(langchainTools);
+
+      let response = onToken
+        ? await streamModel(modelWithTools, conversationHistory, onToken)
+        : await modelWithTools.invoke(conversationHistory);
+      conversationHistory.push(response);
+
+      const allToolCalls = [];
+
+      while (response.tool_calls && response.tool_calls.length > 0) {
+        for (const toolCall of response.tool_calls) {
+          allToolCalls.push(toolCall);
+
+          const tool = langchainTools.find((t) => t.name === toolCall.name);
+
+          let result;
+          if (tool) {
+            try {
+              result = await tool.invoke(toolCall.args);
+            } catch (err) {
+              result = JSON.stringify({ error: err.message });
+            }
+          } else {
+            result = JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
           }
-        } else {
-          result = JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
+
+          conversationHistory.push(
+            new ToolMessage({
+              content: typeof result === 'string' ? result : JSON.stringify(result),
+              tool_call_id: toolCall.id,
+            })
+          );
         }
 
-        // Add tool result to conversation
-        conversationHistory.push(
-          new ToolMessage({
-            content: typeof result === 'string' ? result : JSON.stringify(result),
-            tool_call_id: toolCall.id,
-          })
-        );
+        // Stream the post-tool response (this is usually the final text)
+        response = onToken
+          ? await streamModel(modelWithTools, conversationHistory, onToken)
+          : await modelWithTools.invoke(conversationHistory);
+        conversationHistory.push(response);
       }
 
-      // Get next response (may contain more tool calls or final text)
-      response = await modelWithTools.invoke(conversationHistory);
-      conversationHistory.push(response);
-    }
+      // Keep history manageable — trim at 50 messages (~12-15 conversation turns)
+      if (conversationHistory.length > 50) {
+        conversationHistory = [
+          conversationHistory[0],
+          ...conversationHistory.slice(-40),
+        ];
+      }
 
-    // Keep conversation history manageable (last 20 turns)
-    if (conversationHistory.length > 42) {
-      conversationHistory = [
-        conversationHistory[0],
-        ...conversationHistory.slice(-40),
-      ];
-    }
+      // Content may be a string or array of content blocks
+      const rawContent = response.content;
+      let text;
+      if (typeof rawContent === 'string') {
+        text = rawContent || '(no response)';
+      } else if (Array.isArray(rawContent)) {
+        text = rawContent
+          .filter((b) => b.type === 'text')
+          .map((b) => b.text)
+          .join('') || '(no response)';
+      } else {
+        text = '(no response)';
+      }
 
-    return {
-      text: response.content || '(no response)',
-      toolCalls: allToolCalls,
-    };
-  } catch (err) {
-    // Rollback conversation history to prevent corruption
-    // (e.g. tool_use without matching tool_result)
-    conversationHistory.length = historySnapshot;
-    throw err;
+      return { text, toolCalls: allToolCalls };
+    } catch (err) {
+      conversationHistory.length = historySnapshot;
+      throw err;
+    }
   }
+
+  function resetConversation() {
+    conversationHistory = [new SystemMessage(prompt)];
+  }
+
+  function isReady() {
+    return true;
+  }
+
+  function getToolCount() {
+    return langchainTools.length;
+  }
+
+  return { processInput, resetConversation, isReady, getToolCount };
 }
 
-/**
- * Reset conversation history (useful for test isolation).
- */
+// ── Backward-compatible singleton (for CLI agent) ────────────────────
+
+let _singleton = null;
+
+function init(opts) {
+  _singleton = createSession(opts);
+  return _singleton.isReady();
+}
+
+function processInput(input) {
+  if (!_singleton) {
+    return Promise.resolve({ text: 'LLM agent not initialized. Check ANTHROPIC_API_KEY.', toolCalls: [] });
+  }
+  return _singleton.processInput(input);
+}
+
 function resetConversation() {
-  conversationHistory = [new SystemMessage(SYSTEM_PROMPT)];
+  if (_singleton) _singleton.resetConversation();
 }
 
-/**
- * Check if the LLM agent is initialized and ready.
- */
 function isReady() {
-  return model !== null;
+  return _singleton ? _singleton.isReady() : false;
 }
 
-/**
- * Get the number of available tools.
- */
 function getToolCount() {
-  return langchainTools.length;
+  return _singleton ? _singleton.getToolCount() : 0;
 }
 
-/**
- * Get tool names grouped by source.
- */
 function getToolSummary() {
-  const annuityTools = annuityPlugin.tools({}).map((t) => t.method);
-  const hcs10Tools = hcs10Plugin.tools({}).map((t) => t.method);
-  const hederaKitTools = langchainTools
-    .filter((t) => !annuityTools.includes(t.name) && !hcs10Tools.includes(t.name))
-    .map((t) => t.name);
+  const aTools = annuityPlugin.tools({}).map((t) => t.method);
+  const hTools = hcs10Plugin.tools({}).map((t) => t.method);
 
-  return { annuityTools, hcs10Tools, hederaKitTools };
+  return {
+    annuityTools: aTools,
+    hcs10Tools: hTools,
+    hederaKitTools: [],
+  };
 }
 
-module.exports = { init, processInput, isReady, getToolCount, getToolSummary, resetConversation };
+module.exports = {
+  createSession,
+  init,
+  processInput,
+  isReady,
+  getToolCount,
+  getToolSummary,
+  resetConversation,
+};

@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
+const cors = require('cors');
 const Web3 = require('web3').default;
 const fs = require('fs');
 const path = require('path');
@@ -10,7 +11,14 @@ const { getNetwork, explorerTxUrl } = require('../config/networks');
 
 const app = express();
 const port = process.env.PORT || 4000;
+app.use(cors());
 app.use(bodyParser.json());
+
+// Serve built frontend (production)
+const webDistPath = path.join(__dirname, '../web/dist');
+if (fs.existsSync(webDistPath)) {
+  app.use(express.static(webDistPath));
+}
 
 // ── Network selection ────────────────────────────────────────────────
 // Usage:  node api/imperium-api.js --network hedera-testnet
@@ -445,8 +453,108 @@ app.get('/transactions', (req, res) => {
   res.json({ transactions: txHistory, count: txHistory.length });
 });
 
-app.listen(port, () => {
+// ── WebSocket chat server ────────────────────────────────────────────
+const { WebSocketServer } = require('ws');
+const { createSession } = require('../agent/llm-agent');
+const { rfqPlugin, RFQ_SYSTEM_PROMPT } = require('../agent/plugins/rfq-plugin');
+
+/**
+ * Parse structured ~~~rfq-*~~~ blocks from agent response text.
+ * Returns { plainText, structured } where structured contains extracted data.
+ */
+function parseStructuredResponse(text) {
+  const structured = {};
+  // Support both ~~~rfq-*~~~ and ```rfq-*``` fences
+  const plainText = text.replace(/(?:~~~|```)rfq-(\w[\w-]*)\n([\s\S]*?)(?:~~~|```)/g, (_, type, json) => {
+    try {
+      const key = type.replace(/-/g, '_').replace(/^rfq_/, '');
+      structured[key] = JSON.parse(json.trim());
+    } catch { /* ignore malformed blocks */ }
+    return '';
+  }).replace(/\n{3,}/g, '\n\n').trim();
+
+  return { plainText, structured };
+}
+
+// Load HOL agent state if available (for Hedera tools)
+let holAgentState = null;
+try {
+  const holPath = path.join(__dirname, '../deployments/hol-agent.json');
+  if (fs.existsSync(holPath)) {
+    holAgentState = JSON.parse(fs.readFileSync(holPath, 'utf8'));
+  }
+} catch { /* no HOL agent — continue without Hedera tools */ }
+
+const server = app.listen(port, () => {
   console.log(`ImperiumAPI listening at http://localhost:${port} (network: ${NET.name})`);
+});
+
+// Attach WebSocket on /ws/chat
+const wss = new WebSocketServer({ server, path: '/ws/chat' });
+
+wss.on('connection', (ws) => {
+  console.log('[WS] New chat session');
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    ws.send(JSON.stringify({ type: 'error', text: 'ANTHROPIC_API_KEY not configured on server.' }));
+    ws.close();
+    return;
+  }
+
+  const session = createSession({
+    apiKey,
+    agentState: holAgentState,
+    systemPrompt: RFQ_SYSTEM_PROMPT,
+    extraPlugins: [rfqPlugin],
+  });
+
+  /** Helper: process input with streaming tokens over WebSocket */
+  async function processWithStreaming(inputText) {
+    if (ws.readyState !== ws.OPEN) return;
+    ws.send(JSON.stringify({ type: 'stream_start' }));
+
+    try {
+      const response = await session.processInput(inputText, {
+        onToken: (token) => {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'stream_token', token }));
+          }
+        },
+      });
+      const { plainText, structured } = parseStructuredResponse(response.text);
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'stream_end', text: plainText, structured }));
+      }
+    } catch (err) {
+      console.error('[WS] Process error:', err.message);
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'error', text: 'Something went wrong. Please try again.' }));
+      }
+    }
+  }
+
+  // Send initial greeting by triggering the agent
+  processWithStreaming('The user has just opened the RFQ chat. Greet them and start Stage 1 (Introduction).');
+
+  ws.on('message', async (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      ws.send(JSON.stringify({ type: 'error', text: 'Invalid JSON message.' }));
+      return;
+    }
+
+    const userText = msg.text || '';
+    if (!userText.trim()) return;
+
+    await processWithStreaming(userText);
+  });
+
+  ws.on('close', () => {
+    console.log('[WS] Chat session closed');
+  });
 });
 
 module.exports = app;

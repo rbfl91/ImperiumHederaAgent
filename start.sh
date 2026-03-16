@@ -134,7 +134,12 @@ until curl -s -o /dev/null http://127.0.0.1:4000/health 2>/dev/null; do
 done
 echo -e "${GREEN}   ✅ API running (PID $API_PID)${NC}"
 
-# ── 4) Launch Agent ───────────────────────────────────────────────
+# ── 4) Launch Agent or Web Frontend ───────────────────────────────
+echo ""
+echo -e "${GREEN}   ✅ Backend ready!${NC}"
+echo ""
+echo -e "${CYAN}   Web UI:   ${NC}http://localhost:4000  (or run ${YELLOW}npm run dev:web${NC} for dev server on :5173)"
+echo -e "${CYAN}   CLI Agent:${NC} Run ${YELLOW}node agent/cli-agent.js${NC} in another terminal"
 echo ""
 echo -e "${YELLOW}[4/4]${NC} Launching CLI Agent..."
 echo -e "${CYAN}────────────────────────────────────────────────────────${NC}"
