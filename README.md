@@ -72,18 +72,61 @@ All 21 structured commands work in regex mode (`create`, `execute`, `transfer`, 
 
 ---
 
+## Web UI — Conversational RFQ
+
+A browser-based chat interface where the Imperium Agent guides investors through an annuity Request for Quote flow.
+
+```bash
+# Build the frontend (React + Vite)
+npm run build:web
+
+# Start the server (serves UI + API + WebSocket on port 4000)
+node api/imperium-api.js --network hedera-testnet
+
+# Open http://localhost:4000
+```
+
+### How It Works
+
+The agent walks the user through four stages via natural conversation:
+
+1. **Introduction** — Collects age and investment amount
+2. **Investment Summary** — Fetches live quotes from Australian providers (Challenger, Resolution Life, Generation Life, Allianz Retire+), presents a comparison table with SELECT buttons
+3. **Beneficiary Info** — Gathers beneficiary details and annuity type preference
+4. **Final Review** — Summarises the deal, then executes on-chain: deploys contracts, settles, and pays coupons on Hedera Testnet (or local Hardhat)
+
+### Features
+
+- **Streaming responses** — LLM tokens stream to the browser in real time via WebSocket
+- **Structured data blocks** — Agent emits fenced `~~~rfq-*~~~` blocks that the frontend parses into rich UI: quotes tables, progress updates, suggestion chips, investment success cards
+- **Per-session isolation** — Each browser tab gets its own agent session with independent conversation history
+- **Three-column layout** — Deal progress stepper (left), chat (center), investment details (right)
+- **Imperium Markets branding** — Dark navy theme, orange/gold accents, Roboto font
+
+### Development Mode
+
+```bash
+# Terminal 1: API + WebSocket server
+node api/imperium-api.js
+
+# Terminal 2: Vite dev server with hot reload (port 5173, proxies to 4000)
+cd web && npm run dev
+```
+
+---
+
 ## Architecture
 
 ```
-User input
-  │
-  ├─ LLM Mode ──→ LangChain Agent (Claude Haiku 4.5 via @langchain/anthropic)
-  │                  │
-  │                  ├─ Annuity Plugin (9 tools → ImperiumAPI → Solidity contracts)
-  │                  ├─ HCS-10 Plugin (6 tools → Hedera Consensus Service)
-  │                  └─ hedera-agent-kit Plugins (7+ tools → Mirror Node / SDK)
-  │
-  └─ Regex Mode ──→ parseIntent() → 21 pattern-matched handlers
+Browser (React/Vite)  ←── WebSocket ──→  Express (port 4000)
+                                              │
+User input (CLI)  ──→  cli-agent.js ──→  LangChain Agent (Claude Haiku 4.5)
+                                              │
+                                    ┌─────────┼─────────┐
+                              Annuity Plugin  HCS-10    hedera-agent-kit
+                              (9 tools)       (6 tools) (7+ tools)
+                                    │
+                              ImperiumAPI → Solidity contracts (Hedera / Hardhat)
 ```
 
 ### Key Components
@@ -130,14 +173,24 @@ contracts/
   ImperiumStableCoin.sol        # ERC-20 stablecoin (iUSD)
 agent/
   cli-agent.js                  # Dual-mode CLI agent (v0.5)
-  llm-agent.js                  # LangChain + Claude agent core
+  llm-agent.js                  # LangChain + Claude agent core (session factory + singleton)
   hol-registry.js               # HCS-10 on-chain agent registration
   test-a2a.js                   # Agent-to-agent round-trip test
   plugins/
     annuity-plugin.js           # 9 annuity tools (LangChain plugin)
     hcs10-plugin.js             # 6 HCS-10 tools (LangChain plugin)
+    rfq-plugin.js               # RFQ quotes tool + system prompt for web UI
 api/
-  imperium-api.js               # ImperiumAPI gateway (10 endpoints)
+  imperium-api.js               # ImperiumAPI gateway (REST + WebSocket + static files)
+web/
+  src/
+    App.jsx                     # 3-column layout (stepper | chat | details)
+    context/RfqContext.jsx      # React state: messages, stage, quotes, streaming
+    hooks/useWebSocket.js       # WebSocket connection + streaming handler
+    components/
+      Header.jsx                # Imperium Markets branding + nav
+      Chat/                     # ChatPanel, MessageBubble, QuotesTable, InvestmentCard, SuggestionChips
+      Sidebar/                  # RfqProgress (stepper), InvestmentDetails
 scripts/
   deploy.js                     # Hardhat deploy script
 test/annuity/
@@ -180,6 +233,8 @@ npm test
 | `npm run compile` | Compile Solidity contracts |
 | `npm run deploy:local` | Deploy to local Hardhat node |
 | `npm run node` | Start Hardhat node |
+| `npm run build:web` | Build React frontend to `web/dist/` |
+| `npm run dev:web` | Start Vite dev server with hot reload |
 | `npm start` | Launch full stack via start.sh |
 
 ---
@@ -207,6 +262,8 @@ Imperium operates under Australian Capital Markets conventions:
 | [OpenZeppelin](https://github.com/OpenZeppelin/openzeppelin-contracts) | SafeERC20, ReentrancyGuard |
 | [Hardhat](https://hardhat.org/) | Build, test, deploy Solidity |
 | [Express](https://expressjs.com/) | ImperiumAPI server |
+| [ws](https://github.com/websockets/ws) | WebSocket server for real-time chat streaming |
+| [React + Vite](https://vite.dev/) | Web UI frontend |
 
 ---
 
