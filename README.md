@@ -131,13 +131,15 @@ Browser (React/Vite)  ←── WebSocket ──→  Express (port 4000)
                                               │
 User input (CLI)  ──→  cli-agent.js ──→  LangChain Agent (Claude Haiku 4.5)
                                               │
-                            ┌─────────────────┼─────────────────┐
-                      Annuity Plugin    TD Plugin    NCD Plugin
-                      (9 tools)         (5 tools)    (6 tools)
-                            │               │            │
-                      RFQ Plugin (3 quote tools)    HCS-10 (6)    hedera-agent-kit (7+)
-                            │
-                      ImperiumAPI → Solidity contracts (Hedera / Hardhat)
+                       ┌──────────────────────┼──────────────────────┐
+                 Annuity Plugin         TD Plugin          NCD Plugin
+                 (9 tools)              (5 tools)          (6 tools)
+                       │                    │                   │
+                 RFQ Plugin (3 tools)   HCS-10 (6 tools)   hedera-agent-kit (7+)
+                       │
+                 ImperiumAPI (25+ REST endpoints)
+                       │
+                 Solidity Contracts (Hedera / Hardhat)
 ```
 
 ### Smart Contracts
