@@ -4,7 +4,7 @@
 - `.env` configured with `HEDERA_TESTNET_ACCOUNT_ID` and `HEDERA_TESTNET_PRIVATE_KEY`
 - `.env` configured with `ANTHROPIC_API_KEY` (for Parts E, F, G, and H)
 - HOL agent registered (`deployments/hol-agent.json` exists)
-- Agent account: `0.0.8218785`, Inbound topic: `0.0.8218788`
+- Agent account: `0.0.8314627`, Inbound topic: `0.0.8314635`
 
 ---
 
@@ -57,8 +57,8 @@ Continue from Part B (local stack running).
 
 | # | Step | Command / Action | Expected Result |
 |---|------|-----------------|-----------------|
-| 19 | Agent status | Run `node agent/hol-registry.js status` | Output shows account `0.0.8218785`, inbound topic `0.0.8218788`, outbound topic ID, profile topic ID, and 7 registered skills |
-| 20 | Agent on-chain verification | Run `node agent/hol-registry.js status` and confirm the inbound topic exists on HashScan: `https://hashscan.io/testnet/topic/0.0.8218788` | HashScan shows the topic with messages (profile, skills). Note: the HOL Portal REST search does not index on-chain HCS-10 registrations — our agent won't appear there. |
+| 19 | Agent status | Run `node agent/hol-registry.js status` | Output shows account `0.0.8314627`, inbound topic `0.0.8314635`, outbound topic ID, profile topic ID, and 18 registered skills |
+| 20 | Agent on-chain verification | Run `node agent/hol-registry.js status` and confirm the inbound topic exists on HashScan: `https://hashscan.io/testnet/topic/0.0.8314635` | HashScan shows the topic with messages (profile, skills). Note: the HOL Portal REST search does not index on-chain HCS-10 registrations — our agent won't appear there. |
 
 ---
 
@@ -68,7 +68,7 @@ Start the CLI agent: `node agent/cli-agent.js --network hedera-testnet --no-llm`
 
 | # | Step | Command / Action | Expected Result |
 |---|------|-----------------|-----------------|
-| 21 | Verify banner | Observe the startup banner | Banner shows `v0.6`, `HCS-10 Agent: 0.0.8218785`, `Inbound: 0.0.8218788`, and `Mode: regex` |
+| 21 | Verify banner | Observe the startup banner | Banner shows `v0.6`, `HCS-10 Agent: 0.0.8314627`, `Inbound: 0.0.8314635`, and `Mode: regex` |
 | 22 | List all agents | Type `list agents` | Output shows a table of agents from the HOL Registry (default query `agent`), each with name, registry source, and description |
 | 23 | Search agents | Type `list agents imperium` | Output shows agents matching "imperium" (results from moltbook registry) with name, registry, and description |
 | 24 | Start listener | Type `listen` | Output shows `HCS-10 listener started` with 5-second polling interval |
@@ -120,7 +120,7 @@ Start the CLI agent: `node agent/cli-agent.js --network hedera-testnet`
 | 40 | HBAR balance query | Type `what's my HBAR balance?` | Claude calls `get_hbar_balance_query_tool` and returns HBAR balance |
 | 41 | Account info lookup | Type `look up account 0.0.8199239` | Claude calls `get_account_query_tool` and returns account details |
 | 42 | Token balances | Type `what tokens does my account hold?` | Claude calls `get_account_token_balances_query_tool` and returns HTS tokens |
-| 43 | Topic info query | Type `show info for topic 0.0.8218788` | Claude calls `get_topic_info_query_tool` and returns topic details |
+| 43 | Topic info query | Type `show info for topic 0.0.8314635` | Claude calls `get_topic_info_query_tool` and returns topic details |
 | 44 | Discover agents naturally | Type `find me some agents on the network` | Claude calls `list_agents` and returns a formatted list from HOL Registry |
 | 45 | Start listener naturally | Type `start listening for incoming requests` | Claude calls `start_listener` and confirms |
 | 46 | Stop listener naturally | Type `stop the listener` | Claude calls `stop_listener` and confirms |

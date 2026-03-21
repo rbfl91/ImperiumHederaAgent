@@ -112,7 +112,7 @@ User input (CLI)  ──→  cli-agent.js  ──→  LangChain Agent (Claude Ha
 | Command | Example |
 |---------|---------|
 | List agents | `list agents` or `list agents imperium` |
-| Connect to agent | `connect to 0.0.8218788` |
+| Connect to agent | `connect to 0.0.8314635` |
 | Start listener | `listen` — monitor for incoming connection requests |
 | Stop listener | `stop listening` |
 | Show connections | `show connections` |

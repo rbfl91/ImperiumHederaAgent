@@ -19,7 +19,7 @@ Key capabilities:
 - **33+ tools** across five domains: annuity, term deposit, NCD, Hedera-native queries, and agent-to-agent networking
 - **Smart asset recommendation** — The agent analyses investor goals and recommends the most suitable product
 - **HCS-10 (OpenConvAI)** — Discover, connect, and exchange skill requests with other agents on Hedera
-- **Hedera Testnet deployment** — Live agent registered on-chain with 7 skills
+- **Hedera Testnet deployment** — Live agent registered on-chain with 18 skills
 
 ### Tool Inventory
 
@@ -162,7 +162,7 @@ User input (CLI)  ──→  cli-agent.js  ──→  LangChain Agent (Claude Ha
 | **ImperiumAPI** | Express gateway with 25+ REST endpoints across 3 asset types |
 | **CLI Agent** | Dual-mode interactive agent (LLM or regex) |
 | **LLM Agent** | Claude + LangChain tool-calling loop with conversation memory |
-| **HOL Registry Agent** | On-chain HCS-10 agent (account `0.0.8218785`, 7 skills) |
+| **HOL Registry Agent** | On-chain HCS-10 agent (account `0.0.8314627`, 18 skills) |
 
 ---
 
@@ -172,9 +172,11 @@ The Imperium agent is registered on Hedera Testnet via HCS-10 (OpenConvAI protoc
 
 | Property | Value |
 |----------|-------|
-| Agent Account | `0.0.8218785` |
-| Inbound Topic | `0.0.8218788` |
-| Registered Skills | `annuity.create`, `annuity.execute`, `annuity.transfer`, `annuity.redeem`, `annuity.status`, `annuity.list`, `annuity.health` |
+| Agent Account | `0.0.8314627` |
+| Inbound Topic | `0.0.8314635` |
+| Outbound Topic | `0.0.8314632` |
+| Profile Topic | `0.0.8314687` |
+| Registered Skills | 18 skills across annuity, term deposit, NCD, and agent networking domains |
 
 Other agents can discover Imperium via the HOL Registry, establish a connection, and request annuity operations over HCS topics.
 

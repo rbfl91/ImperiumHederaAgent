@@ -1,7 +1,7 @@
 /**
  * agent/hol-registry.js — HOL Registry Broker integration (HCS-10)
  *
- * Registers the Imperium Annuity agent on the Hashgraph Online Registry
+ * Registers the Imperium Markets agent on the Hashgraph Online Registry
  * using the HCS-10 OpenConvAI standard. Creates agent identity, publishes
  * skills, and handles agent-to-agent connections on Hedera Testnet.
  *
@@ -76,28 +76,29 @@ function createClient(operatorId, operatorKey) {
 function buildAgent() {
   const builder = new AgentBuilder();
   builder
-    .setName('Imperium Annuity Agent')
-    .setAlias('imperium-annuity')
+    .setName('Imperium Markets Agent')
+    .setAlias('imperium-markets')
     .setBio(
-      'Australian Capital Markets annuity lifecycle agent by Imperium Markets. ' +
-      'Issues, settles, transfers, and redeems structured annuity products on Hedera. ' +
-      'Supports ASIC compliance checks, AUD formatting, ACT/365 day-count, and T+2 settlement.'
+      'Australian Capital Markets multi-asset agent by Imperium Markets. ' +
+      'Manages tokenised Annuities, Term Deposits, and NCDs on Hedera — ' +
+      'issue, settle, transfer, and redeem. LLM-powered (Claude) with 33+ tools. ' +
+      'Supports ASIC compliance, AUD formatting, ACT/365 day-count, and T+2 settlement.'
     )
     .setType('autonomous')
-    .setModel('cli-agent-v0.3')
+    .setModel('imperium-agent-v0.6')
     .setCreator('Imperium Markets')
     .setCapabilities([
       AIAgentCapability.DATA_INTEGRATION,        // On-chain data reads
       AIAgentCapability.TRANSACTION_ANALYTICS,    // Yield, duration, analytics
       AIAgentCapability.COMPLIANCE_ANALYSIS,      // ASIC / AML compliance
-      AIAgentCapability.WORKFLOW_AUTOMATION,       // Full annuity lifecycle
+      AIAgentCapability.WORKFLOW_AUTOMATION,       // Full asset lifecycle
       AIAgentCapability.API_INTEGRATION,           // REST API orchestration
       AIAgentCapability.KNOWLEDGE_RETRIEVAL,       // AusCM domain knowledge
       AIAgentCapability.MULTI_AGENT_COORDINATION,  // Agent-to-agent via HCS-10
     ])
     .setNetwork(NETWORK)
     .addProperty('domain', 'Australian Capital Markets')
-    .addProperty('product', 'Structured Annuities')
+    .addProperty('product', 'Tokenised Fixed-Income (Annuities, Term Deposits, NCDs)')
     .addProperty('skills', [
       'annuity.issue',
       'annuity.settle',
@@ -106,8 +107,19 @@ function buildAgent() {
       'annuity.compliance',
       'annuity.analytics',
       'annuity.audit',
+      'term_deposit.issue',
+      'term_deposit.settle',
+      'term_deposit.redeem',
+      'term_deposit.status',
+      'term_deposit.balances',
+      'ncd.issue',
+      'ncd.settle',
+      'ncd.transfer',
+      'ncd.redeem',
+      'ncd.status',
+      'ncd.balances',
     ])
-    .addProperty('version', '0.3.0')
+    .addProperty('version', '0.6.0')
     .addProperty('currency', 'AUD')
     .addProperty('dayCount', 'ACT/365')
     .addProperty('settlement', 'T+2');
@@ -140,7 +152,7 @@ async function cmdCreate() {
   if (resumeState) {
     console.log(`🔄 Resuming from checkpoint (stage: ${resumeState.currentStage}, ${resumeState.completedPercentage}%)...\n`);
   } else {
-    console.log('🚀 Creating Imperium Annuity Agent on Hedera Testnet...\n');
+    console.log('🚀 Creating Imperium Markets Agent on Hedera Testnet...\n');
   }
   console.log(`   Operator:  ${OPERATOR_ID}`);
   console.log(`   Network:   ${NETWORK}`);
@@ -193,6 +205,17 @@ async function cmdCreate() {
       'annuity.compliance',
       'annuity.analytics',
       'annuity.audit',
+      'term_deposit.issue',
+      'term_deposit.settle',
+      'term_deposit.redeem',
+      'term_deposit.status',
+      'term_deposit.balances',
+      'ncd.issue',
+      'ncd.settle',
+      'ncd.transfer',
+      'ncd.redeem',
+      'ncd.status',
+      'ncd.balances',
     ],
   };
 
@@ -232,7 +255,7 @@ async function cmdConnect(targetInboundTopic) {
 
   const receipt = await client.submitConnectionRequest(
     targetInboundTopic,
-    'Connection request from Imperium Annuity Agent'
+    'Connection request from Imperium Markets Agent'
   );
 
   const requestId = receipt.topicSequenceNumber
@@ -262,6 +285,7 @@ async function cmdConnect(targetInboundTopic) {
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:4000';
 
 const SKILL_ROUTES = {
+  // Annuity skills
   'annuity.issue':      { method: 'POST', path: '/deal',                       needsId: false },
   'annuity.settle':     { method: 'POST', path: '/deal/:id/execute',           needsId: true  },
   'annuity.transfer':   { method: 'POST', path: '/deal/:id/transfer',          needsId: true  },
@@ -269,6 +293,19 @@ const SKILL_ROUTES = {
   'annuity.compliance': { method: 'GET',  path: '/deal/:id',                   needsId: true  },
   'annuity.analytics':  { method: 'GET',  path: '/deal/:id/balances',          needsId: true  },
   'annuity.audit':      { method: 'GET',  path: '/deal/:id/transactions',      needsId: true  },
+  // Term Deposit skills
+  'term_deposit.issue':    { method: 'POST', path: '/term-deposit',               needsId: false },
+  'term_deposit.settle':   { method: 'POST', path: '/term-deposit/:id/execute',   needsId: true  },
+  'term_deposit.redeem':   { method: 'POST', path: '/term-deposit/:id/redeem',    needsId: true  },
+  'term_deposit.status':   { method: 'GET',  path: '/term-deposit/:id',           needsId: true  },
+  'term_deposit.balances': { method: 'GET',  path: '/term-deposit/:id/balances',  needsId: true  },
+  // NCD skills
+  'ncd.issue':    { method: 'POST', path: '/ncd',                needsId: false },
+  'ncd.settle':   { method: 'POST', path: '/ncd/:id/execute',    needsId: true  },
+  'ncd.transfer': { method: 'POST', path: '/ncd/:id/transfer',   needsId: true  },
+  'ncd.redeem':   { method: 'POST', path: '/ncd/:id/redeem',     needsId: true  },
+  'ncd.status':   { method: 'GET',  path: '/ncd/:id',            needsId: true  },
+  'ncd.balances': { method: 'GET',  path: '/ncd/:id/balances',   needsId: true  },
 };
 
 async function executeSkill(skill, params) {
@@ -477,7 +514,7 @@ async function cmdListen() {
 
 function printState(state) {
   console.log('┌─────────────────────────────────────────────────────┐');
-  console.log('│         Imperium Annuity Agent — HCS-10             │');
+  console.log('│         Imperium Markets Agent — HCS-10             │');
   console.log('├─────────────────────────────────────────────────────┤');
   console.log(`│  Agent Account:   ${state.agentAccountId || 'N/A'}`);
   console.log(`│  Operator:        ${state.operatorId || 'N/A'}`);
@@ -598,10 +635,10 @@ async function cmdRegisterIndex() {
   const profile = {
     type: 1,
     version: '1.0',
-    display_name: 'Imperium Annuity Agent',
-    alias: 'imperium-annuity',
+    display_name: 'Imperium Markets Agent',
+    alias: 'imperium-markets',
     base_account: state.agentAccountId,
-    bio: 'Australian Capital Markets annuity agent — issues, settles, transfers, and redeems AnnuityTokens on Hedera. HCS-10 compliant with 7 domain-specific skills.',
+    bio: 'Australian Capital Markets multi-asset agent — manages tokenised Annuities, Term Deposits, and NCDs on Hedera. LLM-powered with 33+ tools and 18 HCS-10 skills.',
     properties: {
       accountId: state.agentAccountId,
       inboundTopicId: state.inboundTopicId,
@@ -613,7 +650,7 @@ async function cmdRegisterIndex() {
     aiAgent: {
       type: 1,
       creator: 'Imperium Markets',
-      model: 'rule-based',
+      model: 'imperium-agent-v0.6',
       capabilities: [8, 10, 14, 18, 17, 7, 16],
     },
   };

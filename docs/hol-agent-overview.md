@@ -17,7 +17,7 @@ The agent manages three tokenised Australian Capital Markets instruments:
 
 In practical terms, the HOL Agent is:
 
-- **A Hedera account** (`0.0.8218785`) with its own key pair, dedicated to agent operations.
+- **A Hedera account** (`0.0.8314627`) with its own key pair, dedicated to agent operations.
 - **A discoverable profile** inscribed on-chain via HCS-11, containing the agent's name, bio, capabilities, and skills.
 - **A set of communication channels** (HCS topics) that enable other agents to discover, connect to, and exchange messages with our agent.
 - **A registered entry** in the HOL Guarded Registry, making it searchable by any agent on the network.
@@ -45,16 +45,16 @@ When we ran `node agent/hol-registry.js create`, the SDK created four Hedera res
 
 | Resource | Hedera ID | Purpose |
 |----------|-----------|---------|
-| **Agent Account** | `0.0.8218785` | The agent's own Hedera account with a dedicated key pair. Separate from our operator account (`0.0.7974882`). Funded with 50 testnet HBAR. |
-| **Inbound Topic** | `0.0.8218788` | A public HCS topic where other agents send **connection requests**. Think of it as the agent's "inbox" for new connections. |
-| **Outbound Topic** | `0.0.8218786` | A submit-key-gated HCS topic where the agent logs its own activity (connections accepted, messages sent). Only our agent can write to it — others can read it as a public audit trail. |
-| **Profile Topic** | `0.0.8218794` | Stores the HCS-11 profile JSON (name, bio, skills, capabilities) inscribed via HCS-1. This is what other agents read to understand who we are and what we can do. |
+| **Agent Account** | `0.0.8314627` | The agent's own Hedera account with a dedicated key pair. Separate from our operator account (`0.0.7974882`). Funded with 50 testnet HBAR. |
+| **Inbound Topic** | `0.0.8314635` | A public HCS topic where other agents send **connection requests**. Think of it as the agent's "inbox" for new connections. |
+| **Outbound Topic** | `0.0.8314632` | A submit-key-gated HCS topic where the agent logs its own activity (connections accepted, messages sent). Only our agent can write to it — others can read it as a public audit trail. |
+| **Profile Topic** | `0.0.8314687` | Stores the HCS-11 profile JSON (name, bio, skills, capabilities) inscribed via HCS-1. This is what other agents read to understand who we are and what we can do. |
 
 All four are visible on HashScan:
-- Account: `https://hashscan.io/testnet/account/0.0.8218785`
-- Inbound: `https://hashscan.io/testnet/topic/0.0.8218788`
-- Outbound: `https://hashscan.io/testnet/topic/0.0.8218786`
-- Profile: `https://hashscan.io/testnet/topic/0.0.8218794`
+- Account: `https://hashscan.io/testnet/account/0.0.8314627`
+- Inbound: `https://hashscan.io/testnet/topic/0.0.8314635`
+- Outbound: `https://hashscan.io/testnet/topic/0.0.8314632`
+- Profile: `https://hashscan.io/testnet/topic/0.0.8314687`
 
 **A fifth resource** — the **Connection Topic** — is created dynamically each time two agents establish a connection. It uses a threshold key so both agents can write to it.
 
@@ -86,8 +86,8 @@ We used the SDK's fluent `AgentBuilder` API to define the agent's identity:
 
 ```javascript
 new AgentBuilder()
-  .setName('Imperium Annuity Agent')
-  .setAlias('imperium-annuity')
+  .setName('Imperium Markets Agent')
+  .setAlias('imperium-markets')
   .setBio('Australian Capital Markets annuity lifecycle agent by Imperium Markets...')
   .setType('autonomous')
   .setModel('imperium-agent-v0.6')
@@ -95,7 +95,7 @@ new AgentBuilder()
   .setCapabilities([...])      // 7 AIAgentCapability enums
   .setNetwork('testnet')
   .addProperty('domain', 'Australian Capital Markets')
-  .addProperty('skills', [...])  // 7 skill identifiers
+  .addProperty('skills', [...])  // 18 skill identifiers
   .addProperty('currency', 'AUD')
   .addProperty('dayCount', 'ACT/365')
   .addProperty('settlement', 'T+2')
@@ -123,17 +123,17 @@ The creation process involves multiple Hedera transactions. If any step fails (e
 
 ## 5) What Is the Agent's On-Chain Profile?
 
-The HCS-11 profile inscribed on topic `0.0.8218794` contains:
+The HCS-11 profile inscribed on topic `0.0.8314687` contains:
 
 ```json
 {
   "version": "1.0",
   "type": 1,
-  "display_name": "Imperium Annuity Agent",
-  "alias": "imperium_annuity_agent",
-  "bio": "Australian Capital Markets annuity lifecycle agent by Imperium Markets. Issues, settles, transfers, and redeems structured annuity products on Hedera. Supports ASIC compliance checks, AUD formatting, ACT/365 day-count, and T+2 settlement.",
-  "inboundTopicId": "0.0.8218788",
-  "outboundTopicId": "0.0.8218786",
+  "display_name": "Imperium Markets Agent",
+  "alias": "imperium_markets_agent",
+  "bio": "Australian Capital Markets multi-asset lifecycle agent by Imperium Markets. Manages annuities, term deposits, and NCDs on Hedera. Supports ASIC compliance checks, AUD formatting, ACT/365 day-count, and T+2 settlement.",
+  "inboundTopicId": "0.0.8314635",
+  "outboundTopicId": "0.0.8314632",
   "aiAgent": {
     "type": 1,
     "capabilities": [8, 10, 14, 18, 17, 7, 16],
@@ -191,7 +191,7 @@ The HCS-11 profile inscribed on topic `0.0.8218794` contains:
 | **Create agent** | `node agent/hol-registry.js create` | Creates Hedera account, topics, profile, registers with HOL |
 | **Check status** | `node agent/hol-registry.js status` | Displays the agent's registered identity from `deployments/hol-agent.json` |
 | **Connect to another agent** | `node agent/hol-registry.js connect <topic-id>` | Sends a connection request to another agent's inbound topic and waits for confirmation |
-| **Be discovered** | Any agent calls `client.retrieveProfile('0.0.8218785')` | Returns our full profile with skills and capabilities |
+| **Be discovered** | Any agent calls `client.retrieveProfile('0.0.8314627')` | Returns our full profile with skills and capabilities |
 
 ### Tomorrow (Day 4 — planned)
 
@@ -226,7 +226,7 @@ Agent A (requester)                          Agent B (our agent)
         │                                           │
 ```
 
-1. **Agent A** discovers our agent in the HOL Registry and sends a `connection_request` to our **Inbound Topic** (`0.0.8218788`).
+1. **Agent A** discovers our agent in the HOL Registry and sends a `connection_request` to our **Inbound Topic** (`0.0.8314635`).
 2. **Our agent** monitors the inbound topic, sees the request, creates a new **Connection Topic** (threshold key — both agents can write), and sends a `connection_created` response.
 3. **Agent A** sends a `message` on the Connection Topic containing a skill invocation (e.g., `{"skill": "annuity.issue", "params": {...}}`).
 4. **Our agent** processes the request, executes the on-chain operation via ImperiumAPI, and sends the result back on the same Connection Topic.
@@ -242,7 +242,7 @@ All messages are recorded on Hedera Consensus Service — immutable, timestamped
 | **Identity** | No agent identity — user interacts directly | On-chain agent identity with HCS-11 profile, discoverable by other agents |
 | **Communication** | None — single-user tool | HCS-10 agent-to-agent protocol, multi-party workflows |
 | **Domain knowledge** | Generic contract interaction | Australian Capital Markets: ACT/365, T+2, AUD, ASIC compliance |
-| **Skills** | None — manual contract calls | 7 published skills with structured invocation and response |
+| **Skills** | None — manual contract calls | 18 published skills with structured invocation and response |
 | **Audit trail** | Basic transaction explorer | Structured HCS message log, exportable compliance reports |
 | **Automation** | Manual | Autonomous agent type, automated skill execution |
 
@@ -257,12 +257,12 @@ All messages are recorded on Hedera Consensus Service — immutable, timestamped
 │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────────┐  │
 │  │  Inbound     │  │  Outbound   │  │  Connection Topics   │  │
 │  │  Topic       │  │  Topic      │  │  (created per conn)  │  │
-│  │  0.0.8218788 │  │  0.0.8218786│  │                      │  │
+│  │  0.0.8314635 │  │  0.0.8314632│  │                      │  │
 │  └──────┬───────┘  └──────┬──────┘  └──────────┬───────────┘  │
 │         │                 │                     │              │
 │  ┌──────┴─────────────────┴─────────────────────┴───────────┐ │
-│  │              Agent Account  0.0.8218785                   │ │
-│  │              Profile Topic  0.0.8218794                   │ │
+│  │              Agent Account  0.0.8314627                   │ │
+│  │              Profile Topic  0.0.8314687                   │ │
 │  └──────────────────────────┬────────────────────────────────┘ │
 │                             │                                  │
 │  ┌──────────────────────────┴────────────────────────────────┐ │
