@@ -47,17 +47,18 @@ node agent/cli-agent.js --no-llm
 ```
 Browser (React/Vite)  ←── WebSocket ──→  Express (port 4000)
                                               │
-User input (CLI)  ──→  cli-agent.js ──→  LangChain Agent (Claude Haiku 4.5)
+User input (CLI)  ──→  cli-agent.js  ──→  LangChain Agent (Claude Haiku 4.5)
                                               │
-                       ┌──────────────────────┼──────────────────────┐
-                 Annuity Plugin         TD Plugin          NCD Plugin
-                 (9 tools)              (5 tools)          (6 tools)
-                       │                    │                   │
-                 RFQ Plugin (3 tools)   HCS-10 (6 tools)   hedera-agent-kit (7+)
-                       │
-                 ImperiumAPI (25+ REST endpoints)
-                       │
-                 Solidity Contracts (Hedera / Hardhat)
+                    ┌─────────┬───────────┬───┴───┬────────────┬──────────┐
+              Annuity    TD Plugin   NCD Plugin   RFQ      HCS-10    hedera-
+              Plugin     (5 tools)   (6 tools)    Plugin   (6 tools)  agent-kit
+              (9 tools)                           (3 tools)            (7+ tools)
+                    │         │           │          │
+                    └─────────┴───────────┴──────────┘
+                                  │
+                    ImperiumAPI (25+ REST endpoints)
+                                  │
+                    Solidity Contracts (Hedera / Hardhat)
 ```
 
 ## Tool Inventory (33+ tools)
