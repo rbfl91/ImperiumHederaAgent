@@ -1,6 +1,6 @@
-# Imperium Markets — Full Stack Setup Guide
+# Imperium Markets — Full Stack Setup Guide (v0.6)
 
-This guide describes the steps to compile, deploy, test, and run the Imperium Markets project. Each step includes the expected results.
+This guide describes the steps to compile, deploy, test, and run the Imperium Markets multi-asset agent. Covers all three tokenised instruments: Annuity, Term Deposit, and NCD.
 
 ---
 
@@ -33,8 +33,8 @@ npx hardhat compile
 npx hardhat run scripts/deploy.js --network localhost
 ```
 **Expected:**
-- Deployment addresses for ImperiumAUD (stablecoin) and AnnuityToken
-- Console output: "ImperiumStableCoin deployed to: ...", "AnnuityToken deployed to: ..."
+- Deployment addresses for ImperiumAUD (stablecoin), AnnuityToken, TermDepositToken, and NCDToken
+- Console output shows deployed addresses for each contract
 
 ---
 
@@ -84,10 +84,23 @@ npm run build
 
 ---
 
+## 8. Run All Contract Tests
+
+**Terminal:** Any shell
+```bash
+npm test
+```
+**Expected:**
+- 47+ tests passing across annuity (10), term deposit (6), and NCD (10) suites
+- No failures
+
+---
+
 ## Notes
 - For development with hot reload, use `npm run dev` in the `web/` folder (dev server on :5173, proxies API calls to :4000).
 - Always use separate terminals for Hardhat node and API server to avoid conflicts.
-- Stablecoin symbol is now "eAUD" (ImperiumAUD).
+- Stablecoin symbol is "eAUD" (ImperiumAUD).
+- Three smart contracts are deployed per deal: the asset token (Annuity/TD/NCD) + ImperiumStableCoin.
 - If you encounter errors, check logs in `/tmp/hardhat-node.log` and `/tmp/imperium-api.log`.
 
 ---

@@ -1,14 +1,19 @@
-# Imperium Annuity Agent — HOL Registry Broker Overview
+# Imperium Markets Agent — HOL Registry Broker Overview
 
 **Author:** Imperium Markets Engineering
-**Date:** 2026-03-13
-**Status:** Registered on Hedera Testnet
+**Date:** 2026-03-21
+**Status:** Registered on Hedera Testnet (v0.6 — multi-asset)
 
 ---
 
 ## 1) What Is the HOL Agent?
 
-The **Imperium Annuity Agent** is a software agent registered on the **Hashgraph Online (HOL) Registry Broker** using the **HCS-10 OpenConvAI** standard. It is the on-chain identity that represents our annuity lifecycle engine to other agents and systems on the Hedera network.
+The **Imperium Markets Agent** is a software agent registered on the **Hashgraph Online (HOL) Registry Broker** using the **HCS-10 OpenConvAI** standard. It is the on-chain identity that represents our multi-asset tokenised fixed-income lifecycle engine to other agents and systems on the Hedera network.
+
+The agent manages three tokenised Australian Capital Markets instruments:
+- **Annuity** — Regular coupon payments + face value at maturity (tradeable)
+- **Term Deposit** — Locked funds returned with interest at maturity (non-tradeable)
+- **NCD** — Bought at discount, redeemed at face value at maturity (tradeable)
 
 In practical terms, the HOL Agent is:
 
@@ -17,7 +22,7 @@ In practical terms, the HOL Agent is:
 - **A set of communication channels** (HCS topics) that enable other agents to discover, connect to, and exchange messages with our agent.
 - **A registered entry** in the HOL Guarded Registry, making it searchable by any agent on the network.
 
-The agent does not replace our CLI agent or API — it is the **identity layer** that wraps them, allowing the annuity lifecycle to be invoked by other agents over Hedera Consensus Service (HCS) rather than only through a local command line or REST calls.
+The agent does not replace our CLI agent or API — it is the **identity layer** that wraps them, allowing the full asset lifecycle (annuities, term deposits, NCDs) to be invoked by other agents over Hedera Consensus Service (HCS) rather than only through a local command line, REST calls, or web UI.
 
 ---
 
@@ -85,7 +90,7 @@ new AgentBuilder()
   .setAlias('imperium-annuity')
   .setBio('Australian Capital Markets annuity lifecycle agent by Imperium Markets...')
   .setType('autonomous')
-  .setModel('cli-agent-v0.3')
+  .setModel('imperium-agent-v0.6')
   .setCreator('Imperium Markets')
   .setCapabilities([...])      // 7 AIAgentCapability enums
   .setNetwork('testnet')
@@ -132,7 +137,7 @@ The HCS-11 profile inscribed on topic `0.0.8218794` contains:
   "aiAgent": {
     "type": 1,
     "capabilities": [8, 10, 14, 18, 17, 7, 16],
-    "model": "cli-agent-v0.3",
+    "model": "imperium-agent-v0.6",
     "creator": "Imperium Markets"
   },
   "properties": {
@@ -266,8 +271,10 @@ All messages are recorded on Hedera Consensus Service — immutable, timestamped
 │  └────────────────────────────────────────────────────────────┘ │
 │                                                                │
 │  ┌────────────────────────────────────────────────────────────┐ │
-│  │  ImperiumStableCoin  0xC44f...Af13                         │ │
-│  │  AnnuityToken        0x6e5A...99d0                         │ │
+│  │  ImperiumStableCoin  (eAUD ERC-20)                         │ │
+│  │  AnnuityToken        (coupon-bearing, tradeable)           │ │
+│  │  TermDepositToken    (fixed deposit, non-tradeable)        │ │
+│  │  NCDToken            (discount instrument, tradeable)      │ │
 │  │  (EVM smart contracts on Hedera via Hashio JSON-RPC)       │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────┘
@@ -280,7 +287,8 @@ All messages are recorded on Hedera Consensus Service — immutable, timestamped
 │  ┌──────────────────┐    ┌─────────────────────────────────┐  │
 │  │  agent/           │    │  api/                           │  │
 │  │  hol-registry.js  │───→│  imperium-api.js                │  │
-│  │  cli-agent.js     │    │  (10 REST endpoints)            │  │
+│  │  cli-agent.js     │    │  (25+ REST endpoints)           │  │
+│  │  llm-agent.js     │    │  (annuity + TD + NCD)           │  │
 │  └──────────────────┘    └─────────────────────────────────┘  │
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -298,9 +306,11 @@ All messages are recorded on Hedera Consensus Service — immutable, timestamped
 |------|---------|
 | `agent/hol-registry.js` | CLI module for agent creation, status, and connection. Uses `@hashgraphonline/standards-sdk`. |
 | `deployments/hol-agent.json` | Persisted agent state: account ID, topic IDs, private key, skills. |
-| `.env` | Operator credentials (`HEDERA_TESTNET_ACCOUNT_ID`, `HEDERA_TESTNET_PRIVATE_KEY`). |
-| `agent/cli-agent.js` | The interactive CLI agent (v0.3) — currently operates via REST; Day 4 will connect it to HCS-10 messaging. |
-| `api/imperium-api.js` | The ImperiumAPI — 10 REST endpoints that execute on-chain operations. The HOL agent will invoke these when processing skill requests from other agents. |
+| `.env` | Operator credentials (`HEDERA_TESTNET_ACCOUNT_ID`, `HEDERA_TESTNET_PRIVATE_KEY`, `ANTHROPIC_API_KEY`). |
+| `agent/cli-agent.js` | The interactive CLI agent (v0.6) — dual-mode (LLM or regex), multi-asset. |
+| `agent/llm-agent.js` | LangChain + Claude agent core with session factory for web and singleton for CLI. |
+| `api/imperium-api.js` | The ImperiumAPI — 25+ REST endpoints across 3 asset types. The HOL agent invokes these when processing skill requests. |
+| `agent/plugins/` | LangChain tool plugins: annuity (9), term deposit (5), NCD (6), RFQ (3), HCS-10 (6). |
 
 ---
 

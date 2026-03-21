@@ -1,12 +1,13 @@
-# Imperium Markets — CLI Agent (v0.3)
+# Imperium Markets — Agent (v0.6)
 
-Rule-based interactive agent that orchestrates AnnuityToken smart contract operations via the ImperiumAPI gateway. No LLM or API key required.
+LLM-powered multi-asset agent for tokenised fixed-income lifecycle management on Hedera. Supports **Annuities**, **Term Deposits**, and **NCDs** via natural language or regex command parsing.
 
 ## Prerequisites
 
-1. **Hardhat node** running on port 8545
+1. **Hardhat node** running on port 8545 (local mode) OR Hedera Testnet credentials
 2. **Contracts compiled and deployed**
 3. **ImperiumAPI** running on port 4000
+4. **ANTHROPIC_API_KEY** in `.env` (for LLM mode)
 
 ## Quick Start
 
@@ -25,9 +26,50 @@ node api/imperium-api.js
 node agent/cli-agent.js
 ```
 
-## Available Commands
+### LLM Mode (recommended)
 
-### Lifecycle
+```bash
+# Local Hardhat — multi-asset lifecycle via natural language
+node agent/cli-agent.js
+
+# Hedera Testnet — full stack + HCS-10 agent networking
+node agent/cli-agent.js --network hedera-testnet
+```
+
+### Regex Mode (no API key needed)
+
+```bash
+node agent/cli-agent.js --no-llm
+```
+
+## Architecture
+
+```
+User input (CLI)  ──→  cli-agent.js  ──→  LangChain Agent (Claude Haiku 4.5)
+                                              │
+                            ┌─────────────────┼─────────────────┐
+                      Annuity Plugin    TD Plugin    NCD Plugin
+                      (9 tools)         (5 tools)    (6 tools)
+                            │               │            │
+                      RFQ Plugin (3 quote tools)    HCS-10 (6)    hedera-agent-kit (7+)
+                            │
+                      ImperiumAPI → Solidity contracts (Hedera / Hardhat)
+```
+
+## Tool Inventory (33+ tools)
+
+| Domain | Tools | Key Operations |
+|--------|-------|----------------|
+| **Annuity Lifecycle** | 9 | Create, execute, transfer, redeem, status, balances, list, transactions, health |
+| **Term Deposit** | 5 | Create, execute, redeem, status, balances |
+| **NCD** | 6 | Create, execute, transfer, redeem, status, balances |
+| **RFQ Quotes** | 3 | Annuity quotes, TD quotes, NCD quotes |
+| **Hedera Queries** | 7+ | HBAR balance, account info, token balances, topic info, transaction details |
+| **HCS-10 Networking** | 6 | List agents, connect, send skill requests, manage connections, start/stop listener |
+
+## Available Commands (Regex Mode)
+
+### Annuity Lifecycle
 | Command | Example |
 |---------|---------|
 | Create deal | `create a deal with 5 coupons and face value 1000000` |
@@ -35,13 +77,38 @@ node agent/cli-agent.js
 | Transfer deal | `transfer the deal` or `transfer for price 800000` |
 | Redeem at maturity | `redeem the deal` |
 
+### Term Deposit Lifecycle
+| Command | Example |
+|---------|---------|
+| Create TD | `create term deposit with face value 500000 and rate 450 for 90 days` |
+| Execute TD | `execute term deposit` |
+| Redeem TD | `redeem term deposit` |
+
+### NCD Lifecycle
+| Command | Example |
+|---------|---------|
+| Create NCD | `create ncd with face value 1000000 and rate 480 for 180 days` |
+| Execute NCD | `execute ncd` |
+| Transfer NCD | `transfer ncd for price 950000` |
+| Redeem NCD | `redeem ncd` |
+
 ### Inspection
 | Command | Example |
 |---------|---------|
 | Check status | `check status` or `status of deal-123456` |
-| Show balances | `show balances` — all wallet balances + coupon status |
+| Show balances | `show balances` — all wallet balances |
 | List deals | `list deals` — all deals in this session |
 | Transaction log | `show transactions` — full tx log with hashes |
+
+### HCS-10 Agent Network
+| Command | Example |
+|---------|---------|
+| List agents | `list agents` or `list agents imperium` |
+| Connect to agent | `connect to 0.0.8218788` |
+| Start listener | `listen` — monitor for incoming connection requests |
+| Stop listener | `stop listening` |
+| Show connections | `show connections` |
+| Send skill request | `send annuity.status` |
 
 ### System
 | Command | Example |
@@ -52,29 +119,47 @@ node agent/cli-agent.js
 
 ## How It Works
 
+### Dual-Mode Processing
+
+**LLM Mode** (default when `ANTHROPIC_API_KEY` is set):
+```
+User input → Claude (LangChain) → Tool selection → API call → Streaming response
+```
+
+**Regex Mode** (fallback):
 ```
 User input → Intent Parser (regex) → Tool Router → API call → Response Formatter
 ```
 
-The agent parses natural language commands, maps them to REST calls against the ImperiumAPI (`api/imperium-api.js`), and presents results conversationally. After creating a deal, the agent remembers the correlation ID so you can say "execute" or "check status" without repeating it.
+### Session Factory
 
-## Full Demo Flow
+The LLM agent supports two modes:
+1. **Singleton (CLI)**: `init()` + `processInput()` — single conversation per process
+2. **Session factory (Web)**: `createSession()` — independent session per WebSocket connection, each with its own conversation history and tools
 
-```
-create a deal with 5 coupons     → deploys contracts, funds wallets
-execute the deal                  → investor buys, issuer pays 5 coupons
-show balances                     → stablecoin balances + coupon status
-transfer the deal                 → sell to secondary buyer at 90% FV
-show balances                     → verify transfer settled correctly
-redeem the deal                   → time-travel to maturity, redeem face value
-check status                      → verify expired=true
-show transactions                 → full tx log with hashes
-list deals                        → all deals in session
-```
+### Smart Asset Recommendation
 
-## Architecture
+In LLM mode, the agent analyses investor goals and recommends the most suitable product:
+- **Annuity** — For retirees seeking steady income (regular coupon payments)
+- **Term Deposit** — For conservative investors wanting capital preservation (locked, non-tradeable)
+- **NCD** — For investors wanting short-term yield with liquidity (discount instrument, tradeable)
 
-- **No LLM required** — intent detection via pattern matching
-- **Calls ImperiumAPI** — 10 endpoints via `api/imperium-api.js`
-- **Stateful session** — remembers last deal ID
-- **Extensible** — swap the intent parser for a LangChain LLM agent later (Milestone 2.5)
+## Plugins
+
+| Plugin | File | Tools |
+|--------|------|-------|
+| Annuity | `plugins/annuity-plugin.js` | 9 tools wrapping `/annuity/*` API endpoints |
+| Term Deposit | `plugins/term-deposit-plugin.js` | 5 tools wrapping `/term-deposit/*` API endpoints |
+| NCD | `plugins/ncd-plugin.js` | 6 tools wrapping `/ncd/*` API endpoints |
+| RFQ | `plugins/rfq-plugin.js` | 3 quote tools + RFQ system prompt for web UI |
+| HCS-10 | `plugins/hcs10-plugin.js` | 6 tools for agent-to-agent communication |
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `cli-agent.js` | Dual-mode CLI agent (v0.6) — LLM or regex |
+| `llm-agent.js` | LangChain + Claude agent core (session factory + singleton) |
+| `hol-registry.js` | HCS-10 on-chain agent registration |
+| `test-a2a.js` | Agent-to-agent round-trip test |
+| `plugins/` | LangChain tool plugins (annuity, TD, NCD, RFQ, HCS-10) |
