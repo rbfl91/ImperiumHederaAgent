@@ -67,7 +67,7 @@ function useTypewriter(text, shouldAnimate) {
   return { displayedText: text.slice(0, displayedLen), done };
 }
 
-export default function MessageBubble({ message, isLatestAgent, onSend, animate, showQuotes }) {
+export default function MessageBubble({ message, isLatestAgent, onSend, animate, showQuotes, quotesSelectable }) {
   const isAgent = message.role === 'agent';
   const structured = message.structured || {};
 
@@ -105,7 +105,7 @@ export default function MessageBubble({ message, isLatestAgent, onSend, animate,
         {!message.streaming && (!shouldAnimate || done) && showQuotes && structured.quotes && (
           <QuotesTable
             quotes={structured.quotes}
-            onSelect={isLatestAgent ? onSend : null}
+            onSelect={isLatestAgent && quotesSelectable ? onSend : null}
           />
         )}
 

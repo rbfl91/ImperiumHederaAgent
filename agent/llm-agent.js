@@ -25,6 +25,8 @@ const {
 const { Client, PrivateKey } = require('@hashgraph/sdk');
 
 const { annuityPlugin } = require('./plugins/annuity-plugin');
+const { termDepositPlugin } = require('./plugins/term-deposit-plugin');
+const { ncdPlugin } = require('./plugins/ncd-plugin');
 const { hcs10Plugin } = require('./plugins/hcs10-plugin');
 
 // ── Default system prompt ────────────────────────────────────────────
@@ -142,6 +144,8 @@ function createSession({ apiKey, agentState, hcsContext, systemPrompt, extraPlug
   // 2. Build tools
   const hederaTools = buildHederaTools(agentState);
   const annuityTools = buildPluginTools(annuityPlugin, {});
+  const tdTools = buildPluginTools(termDepositPlugin, {});
+  const ncdTools = buildPluginTools(ncdPlugin, {});
   const hcs10Tools = buildPluginTools(hcs10Plugin, hcsContext || {});
 
   let extraTools = [];
@@ -151,7 +155,7 @@ function createSession({ apiKey, agentState, hcsContext, systemPrompt, extraPlug
     }
   }
 
-  const langchainTools = [...annuityTools, ...hcs10Tools, ...extraTools, ...hederaTools];
+  const langchainTools = [...annuityTools, ...tdTools, ...ncdTools, ...hcs10Tools, ...extraTools, ...hederaTools];
 
   // 3. Conversation history
   let conversationHistory = [new SystemMessage(prompt)];
@@ -309,10 +313,14 @@ function getToolCount() {
 
 function getToolSummary() {
   const aTools = annuityPlugin.tools({}).map((t) => t.method);
+  const tdToolsList = termDepositPlugin.tools({}).map((t) => t.method);
+  const ncdToolsList = ncdPlugin.tools({}).map((t) => t.method);
   const hTools = hcs10Plugin.tools({}).map((t) => t.method);
 
   return {
     annuityTools: aTools,
+    termDepositTools: tdToolsList,
+    ncdTools: ncdToolsList,
     hcs10Tools: hTools,
     hederaKitTools: [],
   };

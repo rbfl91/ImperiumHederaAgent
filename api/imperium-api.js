@@ -42,12 +42,18 @@ if (!NET.usePrefundedAccounts && process.env.HEDERA_TESTNET_PRIVATE_KEY) {
 // Load contract artifacts (Hardhat format)
 const annuityArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/AnnuityToken.sol/AnnuityToken.json')));
 const stablecoinArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/ImperiumStableCoin.sol/ImperiumStableCoin.json')));
+const tdArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/TermDepositToken.sol/TermDepositToken.json')));
+const ncdArtifact = JSON.parse(fs.readFileSync(path.join(__dirname, '../artifacts/contracts/NCDToken.sol/NCDToken.json')));
 
 // Prepare web3 Contract constructors (use ABI + bytecode)
 const AnnuityAbi = annuityArtifact.abi;
 const AnnuityBytecode = annuityArtifact.bytecode;
 const StablecoinAbi = stablecoinArtifact.abi;
 const StablecoinBytecode = stablecoinArtifact.bytecode;
+const TDAbi = tdArtifact.abi;
+const TDBytecode = tdArtifact.bytecode;
+const NCDAbi = ncdArtifact.abi;
+const NCDBytecode = ncdArtifact.bytecode;
 
 // In-memory deal store
 const deals = {};
@@ -450,6 +456,417 @@ app.get('/transactions', (req, res) => {
   res.json({ transactions: txHistory, count: txHistory.length });
 });
 
+// ══════════════════════════════════════════════════════════════════════
+// ── Term Deposit endpoints ─────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+
+app.post('/term-deposit', async (req, res) => {
+  try {
+    const payload = req.body;
+    const correlationId = payload.correlationId;
+    const faceValue = payload.faceValue || 1000000;
+    const interestRate = payload.interestRate || 500; // basis points
+    const termDays = payload.termDays || 3;
+
+    let accounts = await web3.eth.getAccounts();
+    if (accounts.length === 0 && web3.eth.accounts.wallet.length > 0) {
+      accounts = [web3.eth.accounts.wallet[0].address];
+    }
+    const tdIssuer = accounts[1] || accounts[0];
+    const investor = accounts[2] || accounts[0];
+
+    // Deploy stablecoin
+    const StablecoinContract = new web3.eth.Contract(StablecoinAbi);
+    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send({ from: accounts[0], gas: gasLimit(6_000_000) });
+    await waitForFinality();
+    const stablecoinAddress = stablecoinInstance.options.address;
+
+    // Fund investor and issuer
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), { from: accounts[0], gas: gasLimit(200000) });
+    await waitForFinality();
+    await sendWithRetry(stablecoinInstance.methods.transfer(tdIssuer, faceValue * 2), { from: accounts[0], gas: gasLimit(200000) });
+    await waitForFinality();
+
+    const now = Math.floor(Date.now() / 1000);
+    const maturityDate = NET.supportsTimeTravel
+      ? now + termDays * 24 * 60 * 60
+      : now + NET.deployMaturitySeconds;
+
+    // Interest = faceValue * rate / 10000
+    const interestAmount = Math.floor(faceValue * interestRate / 10000);
+
+    const TDContract = new web3.eth.Contract(TDAbi);
+    const tdInstance = await TDContract.deploy({
+      data: TDBytecode,
+      arguments: [tdIssuer, now, maturityDate, faceValue, interestRate, interestAmount, stablecoinAddress]
+    }).send({ from: tdIssuer, gas: gasLimit(8_000_000) });
+    await waitForFinality();
+    const tdAddress = tdInstance.options.address;
+
+    deals[correlationId] = {
+      assetType: 'term-deposit',
+      contractAddress: tdAddress,
+      stablecoinAddress,
+      investor,
+      tdIssuer,
+      faceValue,
+      interestRate,
+      interestAmount,
+      maturityDate,
+      status: 'created',
+      payload
+    };
+    console.log(`Term Deposit created ${correlationId} -> ${tdAddress}`);
+
+    const response = { correlationId, contractAddress: tdAddress, stablecoinAddress, assetType: 'term-deposit', status: 'created' };
+    if (NET.explorer) response.explorerUrl = `${NET.explorer}/contract/${tdAddress}`;
+    res.json(response);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/term-deposit/:correlationId/execute', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'term-deposit') return res.status(404).json({ error: 'Term deposit not found' });
+
+    const td = new web3.eth.Contract(TDAbi, deal.contractAddress);
+    const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
+    console.log(`Executing term deposit ${req.params.correlationId}`);
+    const txs = [];
+
+    // Investor approves and issues
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), { from: deal.investor, gas: gasLimit(200000) });
+    await waitForFinality();
+    txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
+
+    const acceptReceipt = await sendWithRetry(td.methods.acceptAndIssue(deal.investor), { from: deal.investor, gas: gasLimit(500000) });
+    await waitForFinality();
+    txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
+
+    deal.status = 'executed';
+    recordTxs(req.params.correlationId, 'execute', txs);
+    res.json({ correlationId: req.params.correlationId, assetType: 'term-deposit', status: 'executed', txs });
+  } catch (err) {
+    console.error('TD Execute error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/term-deposit/:correlationId/redeem', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'term-deposit') return res.status(404).json({ error: 'Term deposit not found' });
+
+    const td = new web3.eth.Contract(TDAbi, deal.contractAddress);
+    const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
+    console.log(`Redeeming term deposit ${req.params.correlationId}`);
+    const txs = [];
+
+    // Time-travel or wait for maturity
+    if (NET.supportsTimeTravel) {
+      const maturityDate = Number(await td.methods.maturityDate().call());
+      const currentBlock = await web3.eth.getBlock('latest');
+      const currentTime = Number(currentBlock.timestamp);
+      if (currentTime < maturityDate) {
+        const timeToAdvance = maturityDate - currentTime + 60;
+        await fetch(NET.rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'evm_increaseTime', params: [timeToAdvance], id: Date.now() }) });
+        await fetch(NET.rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'evm_mine', params: [], id: Date.now() + 1 }) });
+        txs.push({ type: 'timeTravel', seconds: timeToAdvance });
+      }
+    } else {
+      const maturityDate = Number(await td.methods.maturityDate().call());
+      const now = Math.floor(Date.now() / 1000);
+      if (now < maturityDate) {
+        const waitSec = maturityDate - now + 5;
+        console.log(`Waiting ${waitSec}s for TD maturity (real-time on ${NET.name})...`);
+        txs.push({ type: 'waitForMaturity', seconds: waitSec });
+        await new Promise((r) => setTimeout(r, waitSec * 1000));
+      }
+    }
+
+    // Issuer approves total payout (face value + interest)
+    const totalPayout = String(Number(deal.faceValue) + Number(deal.interestAmount));
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, totalPayout), { from: deal.tdIssuer, gas: gasLimit(200000) });
+    await waitForFinality();
+    txs.push({ type: 'issuerApproveRedemption', tx: issuerApprove.transactionHash });
+
+    const redeemReceipt = await sendWithRetry(td.methods.redeemMaturity(), { from: deal.tdIssuer, gas: gasLimit(500000) });
+    await waitForFinality();
+    txs.push({ type: 'redeemMaturity', tx: redeemReceipt.transactionHash });
+
+    deal.status = 'redeemed';
+    recordTxs(req.params.correlationId, 'redeem', txs);
+    res.json({ correlationId: req.params.correlationId, assetType: 'term-deposit', status: 'redeemed', txs });
+  } catch (err) {
+    console.error('TD Redeem error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/term-deposit/:correlationId', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'term-deposit') return res.status(404).json({ error: 'Term deposit not found' });
+    const td = new web3.eth.Contract(TDAbi, deal.contractAddress);
+    const issuedRaw = await td.methods.issued().call();
+    const expiredRaw = await td.methods.expired().call();
+    const issued = (issuedRaw === true || issuedRaw === 'true');
+    const expired = (expiredRaw === true || expiredRaw === 'true');
+    res.json({ ...deal, contractState: { issued, expired } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/term-deposit/:correlationId/balances', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'term-deposit') return res.status(404).json({ error: 'Term deposit not found' });
+    const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
+    const issuerBal = await stablecoin.methods.balanceOf(deal.tdIssuer).call();
+    const investorBal = await stablecoin.methods.balanceOf(deal.investor).call();
+    const contractBal = await stablecoin.methods.balanceOf(deal.contractAddress).call();
+    res.json({
+      correlationId: req.params.correlationId,
+      assetType: 'term-deposit',
+      balances: {
+        issuer: { address: deal.tdIssuer, stablecoin: issuerBal.toString() },
+        investor: { address: deal.investor, stablecoin: investorBal.toString() },
+        contract: { address: deal.contractAddress, stablecoin: contractBal.toString() },
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// ── NCD (Negotiable Certificate of Deposit) endpoints ──────────────
+// ══════════════════════════════════════════════════════════════════════
+
+app.post('/ncd', async (req, res) => {
+  try {
+    const payload = req.body;
+    const correlationId = payload.correlationId;
+    const faceValue = payload.faceValue || 1000000;
+    const interestRate = payload.interestRate || 300; // basis points
+    const termDays = payload.termDays || 5;
+    // Discounted value = faceValue * (1 - rate/10000)
+    const discountedValue = payload.discountedValue || Math.floor(faceValue * (1 - interestRate / 10000));
+
+    let accounts = await web3.eth.getAccounts();
+    if (accounts.length === 0 && web3.eth.accounts.wallet.length > 0) {
+      accounts = [web3.eth.accounts.wallet[0].address];
+    }
+    const ncdIssuer = accounts[1] || accounts[0];
+    const investor = accounts[2] || accounts[0];
+    const secondary = accounts[3] || accounts[0];
+
+    // Deploy stablecoin
+    const StablecoinContract = new web3.eth.Contract(StablecoinAbi);
+    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send({ from: accounts[0], gas: gasLimit(6_000_000) });
+    await waitForFinality();
+    const stablecoinAddress = stablecoinInstance.options.address;
+
+    // Fund all parties
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), { from: accounts[0], gas: gasLimit(200000) });
+    await waitForFinality();
+    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), { from: accounts[0], gas: gasLimit(200000) });
+    await waitForFinality();
+    await sendWithRetry(stablecoinInstance.methods.transfer(ncdIssuer, faceValue * 2), { from: accounts[0], gas: gasLimit(200000) });
+    await waitForFinality();
+
+    const now = Math.floor(Date.now() / 1000);
+    const maturityDate = NET.supportsTimeTravel
+      ? now + termDays * 24 * 60 * 60
+      : now + NET.deployMaturitySeconds;
+
+    const NCDContract = new web3.eth.Contract(NCDAbi);
+    const ncdInstance = await NCDContract.deploy({
+      data: NCDBytecode,
+      arguments: [ncdIssuer, now, maturityDate, faceValue, interestRate, discountedValue, stablecoinAddress]
+    }).send({ from: ncdIssuer, gas: gasLimit(8_000_000) });
+    await waitForFinality();
+    const ncdAddress = ncdInstance.options.address;
+
+    deals[correlationId] = {
+      assetType: 'ncd',
+      contractAddress: ncdAddress,
+      stablecoinAddress,
+      investor,
+      secondary,
+      ncdIssuer,
+      faceValue,
+      interestRate,
+      discountedValue,
+      maturityDate,
+      status: 'created',
+      payload
+    };
+    console.log(`NCD created ${correlationId} -> ${ncdAddress}`);
+
+    const response = { correlationId, contractAddress: ncdAddress, stablecoinAddress, assetType: 'ncd', status: 'created' };
+    if (NET.explorer) response.explorerUrl = `${NET.explorer}/contract/${ncdAddress}`;
+    res.json(response);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/ncd/:correlationId/execute', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'ncd') return res.status(404).json({ error: 'NCD not found' });
+
+    const ncd = new web3.eth.Contract(NCDAbi, deal.contractAddress);
+    const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
+    console.log(`Executing NCD ${req.params.correlationId}`);
+    const txs = [];
+
+    // Investor approves discounted value and issues
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.discountedValue)), { from: deal.investor, gas: gasLimit(200000) });
+    await waitForFinality();
+    txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
+
+    const acceptReceipt = await sendWithRetry(ncd.methods.acceptAndIssue(deal.investor), { from: deal.investor, gas: gasLimit(500000) });
+    await waitForFinality();
+    txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
+
+    deal.status = 'executed';
+    recordTxs(req.params.correlationId, 'execute', txs);
+    res.json({ correlationId: req.params.correlationId, assetType: 'ncd', status: 'executed', txs });
+  } catch (err) {
+    console.error('NCD Execute error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/ncd/:correlationId/transfer', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'ncd') return res.status(404).json({ error: 'NCD not found' });
+
+    const price = req.body.price || Math.floor(deal.faceValue * 0.95);
+    const newOwner = req.body.newOwner || deal.secondary;
+
+    const ncd = new web3.eth.Contract(NCDAbi, deal.contractAddress);
+    const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
+    console.log(`Transferring NCD ${req.params.correlationId} to ${newOwner} for ${price}`);
+    const txs = [];
+
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(price)), { from: newOwner, gas: gasLimit(200000) });
+    await waitForFinality();
+    txs.push({ type: 'buyerApprove', tx: approveReceipt.transactionHash });
+
+    const currentOwner = await ncd.methods.currentOwner().call();
+    const transferReceipt = await sendWithRetry(ncd.methods.transferNCD(newOwner, String(price)), { from: currentOwner, gas: gasLimit(500000) });
+    await waitForFinality();
+    txs.push({ type: 'transferNCD', tx: transferReceipt.transactionHash });
+
+    deal.status = 'transferred';
+    recordTxs(req.params.correlationId, 'transfer', txs);
+    res.json({ correlationId: req.params.correlationId, assetType: 'ncd', status: 'transferred', newOwner, price, txs });
+  } catch (err) {
+    console.error('NCD Transfer error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/ncd/:correlationId/redeem', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'ncd') return res.status(404).json({ error: 'NCD not found' });
+
+    const ncd = new web3.eth.Contract(NCDAbi, deal.contractAddress);
+    const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
+    console.log(`Redeeming NCD ${req.params.correlationId}`);
+    const txs = [];
+
+    // Time-travel or wait for maturity
+    if (NET.supportsTimeTravel) {
+      const maturityDate = Number(await ncd.methods.maturityDate().call());
+      const currentBlock = await web3.eth.getBlock('latest');
+      const currentTime = Number(currentBlock.timestamp);
+      if (currentTime < maturityDate) {
+        const timeToAdvance = maturityDate - currentTime + 60;
+        await fetch(NET.rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'evm_increaseTime', params: [timeToAdvance], id: Date.now() }) });
+        await fetch(NET.rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'evm_mine', params: [], id: Date.now() + 1 }) });
+        txs.push({ type: 'timeTravel', seconds: timeToAdvance });
+      }
+    } else {
+      const maturityDate = Number(await ncd.methods.maturityDate().call());
+      const now = Math.floor(Date.now() / 1000);
+      if (now < maturityDate) {
+        const waitSec = maturityDate - now + 5;
+        console.log(`Waiting ${waitSec}s for NCD maturity (real-time on ${NET.name})...`);
+        txs.push({ type: 'waitForMaturity', seconds: waitSec });
+        await new Promise((r) => setTimeout(r, waitSec * 1000));
+      }
+    }
+
+    // Issuer approves face value payout
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), { from: deal.ncdIssuer, gas: gasLimit(200000) });
+    await waitForFinality();
+    txs.push({ type: 'issuerApproveRedemption', tx: issuerApprove.transactionHash });
+
+    const redeemReceipt = await sendWithRetry(ncd.methods.redeemMaturity(), { from: deal.ncdIssuer, gas: gasLimit(500000) });
+    await waitForFinality();
+    txs.push({ type: 'redeemMaturity', tx: redeemReceipt.transactionHash });
+
+    deal.status = 'redeemed';
+    recordTxs(req.params.correlationId, 'redeem', txs);
+    res.json({ correlationId: req.params.correlationId, assetType: 'ncd', status: 'redeemed', txs });
+  } catch (err) {
+    console.error('NCD Redeem error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/ncd/:correlationId', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'ncd') return res.status(404).json({ error: 'NCD not found' });
+    const ncd = new web3.eth.Contract(NCDAbi, deal.contractAddress);
+    const issuedRaw = await ncd.methods.issued().call();
+    const expiredRaw = await ncd.methods.expired().call();
+    const currentOwner = await ncd.methods.currentOwner().call();
+    const issued = (issuedRaw === true || issuedRaw === 'true');
+    const expired = (expiredRaw === true || expiredRaw === 'true');
+    res.json({ ...deal, currentOwner, contractState: { issued, expired } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/ncd/:correlationId/balances', async (req, res) => {
+  try {
+    const deal = deals[req.params.correlationId];
+    if (!deal || deal.assetType !== 'ncd') return res.status(404).json({ error: 'NCD not found' });
+    const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
+    const ncd = new web3.eth.Contract(NCDAbi, deal.contractAddress);
+    const currentOwner = await ncd.methods.currentOwner().call();
+    const issuerBal = await stablecoin.methods.balanceOf(deal.ncdIssuer).call();
+    const investorBal = await stablecoin.methods.balanceOf(deal.investor).call();
+    const secondaryBal = await stablecoin.methods.balanceOf(deal.secondary).call();
+    const contractBal = await stablecoin.methods.balanceOf(deal.contractAddress).call();
+    res.json({
+      correlationId: req.params.correlationId,
+      assetType: 'ncd',
+      currentOwner,
+      balances: {
+        issuer: { address: deal.ncdIssuer, stablecoin: issuerBal.toString() },
+        investor: { address: deal.investor, stablecoin: investorBal.toString() },
+        secondary: { address: deal.secondary, stablecoin: secondaryBal.toString() },
+        contract: { address: deal.contractAddress, stablecoin: contractBal.toString() },
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 10) Wallet overview — native balance, stablecoins, issued assets
 app.get('/wallet', async (req, res) => {
   try {
@@ -541,6 +958,8 @@ app.get('/wallet', async (req, res) => {
 const { WebSocketServer } = require('ws');
 const { createSession } = require('../agent/llm-agent');
 const { rfqPlugin, RFQ_SYSTEM_PROMPT } = require('../agent/plugins/rfq-plugin');
+const { termDepositPlugin } = require('../agent/plugins/term-deposit-plugin');
+const { ncdPlugin } = require('../agent/plugins/ncd-plugin');
 
 /**
  * Parse structured ~~~rfq-*~~~ blocks from agent response text.
@@ -590,7 +1009,7 @@ wss.on('connection', (ws) => {
     apiKey,
     agentState: holAgentState,
     systemPrompt: RFQ_SYSTEM_PROMPT,
-    extraPlugins: [rfqPlugin],
+    extraPlugins: [rfqPlugin, termDepositPlugin, ncdPlugin],
   });
 
   /** Helper: process input with streaming tokens over WebSocket */

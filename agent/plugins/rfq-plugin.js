@@ -10,13 +10,27 @@
 
 const { z } = require('zod');
 
-// ── Mock Australian annuity providers ────────────────────────────────
+// ── Mock Australian providers ────────────────────────────────────────
 
-const PROVIDERS = [
+const ANNUITY_PROVIDERS = [
   { name: 'Challenger', baseRate: 5.12, logo: 'challenger' },
   { name: 'Resolution Life', baseRate: 5.08, logo: 'resolution' },
   { name: 'Generation Life', baseRate: 4.95, logo: 'generation' },
   { name: 'Allianz Retire+', baseRate: 4.82, logo: 'allianz' },
+];
+
+const TD_PROVIDERS = [
+  { name: 'Westpac (WBC)', baseRate: 4.65, logo: 'westpac' },
+  { name: 'National Australia Bank (NAB)', baseRate: 4.55, logo: 'nab' },
+  { name: 'Commonwealth Bank (CBA)', baseRate: 4.50, logo: 'cba' },
+  { name: 'ANZ', baseRate: 4.40, logo: 'anz' },
+];
+
+const NCD_PROVIDERS = [
+  { name: 'Bank of Queensland (BOQ)', baseRate: 4.80, logo: 'boq' },
+  { name: 'Macquarie Bank', baseRate: 4.70, logo: 'macquarie' },
+  { name: 'Suncorp', baseRate: 4.55, logo: 'suncorp' },
+  { name: 'Bendigo Bank', baseRate: 4.45, logo: 'bendigo' },
 ];
 
 /**
@@ -28,7 +42,7 @@ function computeQuotes({ age, premiumAmount, payoutFrequency = 'annual' }) {
 
   const freqDivisor = { monthly: 12, quarterly: 4, annual: 1 }[payoutFrequency] || 1;
 
-  return PROVIDERS.map((p) => {
+  return ANNUITY_PROVIDERS.map((p) => {
     const rate = +(p.baseRate + ageFactor + premiumFactor).toFixed(2);
     const annualPayout = Math.round(premiumAmount * (rate / 100));
     const periodPayout = Math.round(annualPayout / freqDivisor);
@@ -73,36 +87,148 @@ const getAnnuityQuotesTool = {
   },
 };
 
+// ── Term Deposit quotes ──────────────────────────────────────────────
+
+function computeTDQuotes({ faceValue, termDays = 90 }) {
+  const termFactor = termDays >= 180 ? 0.15 : termDays >= 90 ? 0.08 : 0;
+  const sizeFactor = faceValue >= 500000 ? 0.10 : faceValue >= 250000 ? 0.05 : 0;
+
+  return TD_PROVIDERS.map((p) => {
+    const rate = +(p.baseRate + termFactor + sizeFactor).toFixed(2);
+    const interestAmount = Math.round(faceValue * (rate / 100) * (termDays / 365));
+    return {
+      provider: p.name,
+      logo: p.logo,
+      rate: `${rate}%`,
+      rateNum: rate,
+      faceValue,
+      termDays,
+      interestAmount,
+      totalReturn: faceValue + interestAmount,
+    };
+  }).sort((a, b) => b.rateNum - a.rateNum);
+}
+
+const getTermDepositQuotesTool = {
+  method: 'get_term_deposit_quotes',
+  name: 'Get Term Deposit Quotes',
+  description:
+    'Fetch live term deposit quotes from Australian banks for a given face value and term length. ' +
+    'Returns ranked list of banks with rates and interest amounts. ' +
+    'Call this when the user wants a term deposit and has provided amount and desired term.',
+  parameters: z.object({
+    faceValue: z.number().describe('Deposit amount in AUD whole units'),
+    termDays: z.number().optional().default(90).describe('Term length in days (default 90)'),
+  }),
+  execute: async ({ faceValue, termDays = 90 }) => {
+    const quotes = computeTDQuotes({ faceValue, termDays });
+    return JSON.stringify({
+      quotes,
+      assetType: 'term-deposit',
+      updatedAt: new Date().toISOString(),
+      disclaimer: 'Indicative rates only. Subject to issuer terms and market conditions.',
+    });
+  },
+};
+
+// ── NCD quotes ───────────────────────────────────────────────────────
+
+function computeNCDQuotes({ faceValue, termDays = 90 }) {
+  const termFactor = termDays >= 180 ? 0.12 : termDays >= 90 ? 0.06 : 0;
+  const sizeFactor = faceValue >= 500000 ? 0.08 : faceValue >= 250000 ? 0.04 : 0;
+
+  return NCD_PROVIDERS.map((p) => {
+    const rate = +(p.baseRate + termFactor + sizeFactor).toFixed(2);
+    const discount = Math.round(faceValue * (rate / 100) * (termDays / 365));
+    const discountedPrice = faceValue - discount;
+    return {
+      provider: p.name,
+      logo: p.logo,
+      rate: `${rate}%`,
+      rateNum: rate,
+      faceValue,
+      termDays,
+      discountedPrice,
+      yield: discount,
+    };
+  }).sort((a, b) => b.rateNum - a.rateNum);
+}
+
+const getNCDQuotesTool = {
+  method: 'get_ncd_quotes',
+  name: 'Get NCD Quotes',
+  description:
+    'Fetch live NCD (Negotiable Certificate of Deposit) quotes from Australian banks. ' +
+    'NCDs are bought at a discount and redeemed at full face value at maturity. Tradeable on secondary market. ' +
+    'Returns ranked list with discount prices and yields. Call when user wants an NCD.',
+  parameters: z.object({
+    faceValue: z.number().describe('Face value in AUD whole units'),
+    termDays: z.number().optional().default(90).describe('Term length in days (default 90)'),
+  }),
+  execute: async ({ faceValue, termDays = 90 }) => {
+    const quotes = computeNCDQuotes({ faceValue, termDays });
+    return JSON.stringify({
+      quotes,
+      assetType: 'ncd',
+      updatedAt: new Date().toISOString(),
+      disclaimer: 'Indicative rates only. Subject to issuer terms and market conditions.',
+    });
+  },
+};
+
 // ── Plugin export ────────────────────────────────────────────────────
 
 const rfqPlugin = {
   name: 'imperium-rfq-plugin',
-  version: '0.1.0',
-  description: 'RFQ tools for the web-based conversational annuity quoting flow.',
-  tools: (_context) => [getAnnuityQuotesTool],
+  version: '0.2.0',
+  description: 'RFQ tools for the web-based conversational flow — annuities, term deposits, and NCDs.',
+  tools: (_context) => [getAnnuityQuotesTool, getTermDepositQuotesTool, getNCDQuotesTool],
 };
 
 // ── RFQ System Prompt ────────────────────────────────────────────────
 
-const RFQ_SYSTEM_PROMPT = `You are the Imperium Annuity Advisor — a friendly Australian retirement specialist guiding investors through annuity quoting via chat.
+const RFQ_SYSTEM_PROMPT = `You are the Imperium Markets Advisor — a friendly Australian capital markets specialist guiding investors through tokenised fixed-income products via chat.
 
 Tone: warm, Australian ("G'day!", "No worries"), patient — one question at a time. Format money as A$X.
 
+## Available Products
+
+You can recommend THREE types of tokenised assets. Based on the user's goals, recommend the most appropriate:
+
+1. **Annuity** — Regular income stream (coupons) + face value at maturity. Tradeable. Best for: retirees seeking steady income.
+   - Issuers: Challenger, Resolution Life, Generation Life, Allianz Retire+
+2. **Term Deposit (TD)** — Fixed amount locked for a term, interest + principal returned at maturity. NOT tradeable. Best for: conservative investors wanting capital preservation.
+   - Issuers: Westpac, NAB, CBA, ANZ
+3. **NCD (Negotiable Certificate of Deposit)** — Bought at a discount to face value, redeemed at full face value at maturity. Tradeable on secondary market. Best for: investors wanting short-term yield with liquidity.
+   - Issuers: BOQ, Macquarie Bank, Suncorp, Bendigo Bank
+
 ## RFQ Stages (follow in order)
 
-**Stage 1 — Introduction**: Greet warmly, explain you'll find the best annuity rates, ask for age and investment amount.
+**Stage 1 — Introduction**: Greet warmly, explain you help find the best rates across annuities, term deposits, and NCDs. Ask about their investment goals, age, and amount.
 
-**Stage 2 — Investment Summary**: Confirm age/amount, ask funding source and state of residence. Call get_annuity_quotes when you have age + amount. Present quotes, ask about payout frequency.
+**Stage 2 — Investment Summary**: Based on goals, recommend the best product type. Confirm details, ask funding source and state of residence. Fetch quotes:
+- Annuity: call get_annuity_quotes (needs age + amount)
+- Term Deposit: call get_term_deposit_quotes (needs amount + termDays)
+- NCD: call get_ncd_quotes (needs amount + termDays)
+Present quotes to user. For annuities, ask payout frequency.
 
-**Stage 3 — Beneficiary Info**: Ask beneficiary name/relationship and annuity type (lifetime, fixed-term, inflation-adjusted).
+**Stage 3 — Beneficiary Info**: Ask beneficiary name/relationship and product specifics (annuity type for annuities, term length confirmation for TD/NCD).
 
-**Stage 4 — Final Review**: Summarise the full investment, ask for confirmation. On confirmation:
-1. Call **create_annuity** (termDays=5, faceValue=premium amount)
-2. Extract correlationId from result
-3. Call **execute_deal** with that correlationId
-4. Present on-chain results (addresses, tx hashes, coupons)
-5. Emit investment card with real data (see blocks below)
-Chat stays open after finalization for follow-up queries.
+**Stage 4 — Final Review**: Summarise the full investment, ask for confirmation. On confirmation, execute on-chain:
+
+For **Annuity**:
+1. Call create_annuity (termDays=5, faceValue=amount)
+2. Extract correlationId → call execute_deal with it
+
+For **Term Deposit**:
+1. Call create_term_deposit (termDays=term, faceValue=amount, interestRate from selected quote in bps)
+2. Extract correlationId → call execute_term_deposit with it
+
+For **NCD**:
+1. Call create_ncd (termDays=term, faceValue=amount, interestRate from selected quote in bps)
+2. Extract correlationId → call execute_ncd with it
+
+Present on-chain results and emit investment card. Chat stays open after finalization.
 
 ## Structured Data Blocks (REQUIRED)
 

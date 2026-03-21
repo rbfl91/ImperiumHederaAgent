@@ -20,6 +20,6 @@ module.exports = {
   },
   mocha: {
     timeout: 60000,
-    spec: "test/annuity/**/*.test.js"
+    spec: "test/**/*.test.js"
   }
 };

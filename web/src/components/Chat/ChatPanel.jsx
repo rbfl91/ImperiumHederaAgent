@@ -46,6 +46,7 @@ export default function ChatPanel({ onSend }) {
               animate={i === lastAgentIdx}
               onSend={(state.isTyping || state.isStreaming) ? null : onSend}
               showQuotes={i === firstQuotesIdx}
+              quotesSelectable={state.currentStage === 'investment_summary'}
             />
             {/* Show chips directly under the last agent message */}
             {i === lastAgentIdx && activeChips && !state.isTyping && (

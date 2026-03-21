@@ -1,26 +1,25 @@
 # Imperium Markets — Hedera Testnet Deployment Plan
 
-**Version:** 5.0
-**Date:** 2026-03-16
-**Target:** Deploy AnnuityToken to Hedera Testnet + HOL Registry Broker agent demo + CLI Agent v0.5 (LLM-powered) + Conversational RFQ Web UI in 7 days
+**Version:** 6.0
+**Date:** 2026-03-20
+**Target:** Deploy multi-asset tokenised instruments (Annuity, Term Deposit, NCD) to Hedera Testnet + HOL Registry Broker agent demo + CLI Agent v0.6 (LLM-powered, multi-asset) + Conversational RFQ Web UI in 7 days
 **Authors:** Imperium Markets Engineering
 
 ---
 
 ## 1) Objective
 
-Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate build tooling from Truffle to **Hardhat**, register the agent on the **HOL Registry Broker** (HCS-10), upgrade the CLI agent with HCS-10 awareness, and run a live demo against Hedera infrastructure.
+Deploy tokenised Australian fixed-income instruments (Annuity, Term Deposit, NCD) to **Hedera Testnet**, migrate build tooling from Truffle to **Hardhat**, register the agent on the **HOL Registry Broker** (HCS-10), upgrade the CLI agent with multi-asset intelligence, and run a live demo against Hedera infrastructure.
 
 ### Success criteria
 
-- AnnuityToken + ImperiumStableCoin deployed to Hedera Testnet.
-- Full lifecycle executable on-chain: issue → coupons → transfer → redeem.
+- Three smart contracts deployed to Hedera Testnet: AnnuityToken, TermDepositToken, NCDToken + ImperiumStableCoin.
+- Full lifecycle executable on-chain for each asset type.
 - CLI agent registered on HOL Registry Broker with published skills.
 - Agent-to-agent communication working via HCS-10 on Hedera Testnet.
-- CLI agent v0.4 with HCS-10 commands: discover agents, establish connections, invoke skills on remote agents, view connections, and operate in listener mode (receive + execute skill requests from other agents) — all from the interactive terminal.
-- CLI agent and demo bot running against Hedera Testnet (not Ganache).
-- All existing Ganache-based tests still pass locally.
-- Browser-based conversational RFQ flow guided by the Imperium Agent.
+- CLI agent v0.6 with 33+ tools: annuity (9), term deposit (5), NCD (6), RFQ quotes (3), HCS-10 (6), Hedera queries (7+).
+- Smart asset recommendation: agent analyses investor goals and recommends the most suitable product.
+- Browser-based conversational RFQ flow with multi-asset support.
 - Real-time LLM streaming via WebSocket.
 - On-chain deal execution from the web UI (Hedera Testnet or local Hardhat).
 
@@ -30,14 +29,18 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 
 | Asset | Status |
 |-------|--------|
-| `contracts/AnnuityToken.sol` | ✅ Production-ready Solidity ^0.8.21 |
+| `contracts/AnnuityToken.sol` | ✅ Production-ready Solidity ^0.8.21 — coupon-bearing, tradeable |
+| `contracts/TermDepositToken.sol` | ✅ Non-tradeable fixed deposit — issue + redeem with interest at maturity |
+| `contracts/NCDToken.sol` | ✅ Tradeable discount instrument — issue at discount, secondary transfer, redeem at face value |
 | `contracts/ImperiumStableCoin.sol` | ✅ ERC-20 stablecoin (ImperiumAUD / eAUD) |
-| `api/imperium-api.js` | ✅ ImperiumAPI — 10 endpoints, full lifecycle, `--network` flag, Hedera finality/gas handling, `dotenv` + wallet loading for testnet single-account mode, WebSocket server (`/ws/chat`), CORS, structured response parsing, static file serving (`web/dist/`) |
+| `api/imperium-api.js` | ✅ ImperiumAPI — 25+ endpoints (annuity + TD + NCD), full lifecycle for all 3 asset types, `--network` flag, Hedera finality/gas handling, `dotenv` + wallet loading for testnet single-account mode, WebSocket server (`/ws/chat`), CORS, structured response parsing, static file serving (`web/dist/`) |
 | `agent/cli-agent.js` | ✅ v0.5, 17 intents (11 annuity/system + 6 HCS-10), HCS-10 listener mode, agent discovery, connection management, skill invocation, dual mode (LLM + regex fallback) |
 | `hardhat.config.js` | ✅ Solidity 0.8.21, Hardhat Network + localhost + `hederaTestnet` (chainId 296) |
 | `scripts/deploy.js` | ✅ Deploys ImperiumStableCoin + AnnuityToken, saves to `deployments/`, short maturity for Hedera |
 | `config/networks.js` | ✅ Network config loader — local + hedera-testnet, deployment save/load, explorer URLs |
-| `test/annuity/01–05*.test.js` | ✅ 5 contract test files (migrated to ethers.js v6) |
+| `test/annuity/01–05*.test.js` | ✅ 5 annuity contract test files (migrated to ethers.js v6) |
+| `test/term-deposit/*.test.js` | ✅ 2 test files, 6 tests: lifecycle (issue→mature→redeem), security (double-issue, access control, double-redeem, pre-issue) |
+| `test/ncd/*.test.js` | ✅ 3 test files, 10 tests: lifecycle (with/without secondary trade), transfers (4 edge cases), security (double-issue, access control, double-redeem, pre-issue) |
 | `web/src/components/Sidebar/WalletPanel.jsx` | ✅ WalletPanel — displays HBAR/ETH, stablecoins (eAUD), annuity assets, auto-refresh, network indicator |
 | `web/` | ✅ Web UI improvements — 3-column layout, real-time chat, investment details, Imperium branding, auto-refresh wallet balances |
 | `test/annuity/01-annuity.api.flow.test.js` | ✅ API integration test (fetch-based, uses 127.0.0.1) |
@@ -50,7 +53,9 @@ Deploy the existing AnnuityToken smart contract to **Hedera Testnet**, migrate b
 | `agent/hol-registry.js` | ✅ HOL Registry Broker module — `create`, `status`, `connect`, `listen`, `register-index` commands, skill-to-API mapping (7 skills), inbound polling, auto-accept connections, skill execution + response, auto key type detection, low-level ledger auth (challenge → base64 sign → verify) |
 | `agent/test-a2a.js` | ✅ Agent-to-agent communication test — creates Test Requester agent (cached), connects via HCS-10, invokes skill, reads response |
 | `agent/llm-agent.js` | ✅ LLM agent module — `@langchain/anthropic` (Claude Haiku 4.5), custom plugins, session factory (`createSession()`) for per-WebSocket sessions, streaming support, backward-compatible singleton for CLI |
-| `agent/plugins/rfq-plugin.js` | ✅ RFQ quotes tool (`get_annuity_quotes`) + 4-stage system prompt for web UI RFQ flow (Introduction → Investment Summary → Beneficiary Info → Final Review) |
+| `agent/plugins/term-deposit-plugin.js` | ✅ 5 term deposit tools: create, execute, redeem, status, balances |
+| `agent/plugins/ncd-plugin.js` | ✅ 6 NCD tools: create, execute, transfer, redeem, status, balances |
+| `agent/plugins/rfq-plugin.js` | ✅ 3 quote tools (`get_annuity_quotes`, `get_term_deposit_quotes`, `get_ncd_quotes`) + multi-asset system prompt — agent recommends best product based on investor goals |
 | `web/` | ✅ React + Vite frontend — 3-column layout (deal progress stepper, conversational chat, investment details), ~15 files |
 | `web/src/context/RfqContext.jsx` | ✅ React state management — messages, stage, quotes, streaming state |
 | `web/src/hooks/useWebSocket.js` | ✅ WebSocket connection + streaming handler for real-time LLM token delivery |
@@ -341,6 +346,32 @@ The agent is registered **on-chain** (HCS-10 Guarded Registry on Hedera testnet)
 
 ---
 
+### Day 6.5 — Multi-Asset Expansion (Term Deposits + NCDs) ✅ COMPLETED
+
+**Goal:** Expand from annuity-only to three tokenised Australian Capital Markets instruments: Annuities, Term Deposits, and NCDs.
+
+| # | Task | Status | Details |
+|---|------|--------|---------|
+| 1 | TermDepositToken.sol contract | ✅ | Non-tradeable. Constructor: issuer, dates, faceValue, interestRate, interestAmount, stablecoin. Lifecycle: `acceptAndIssue()` → `redeemMaturity()` (returns faceValue + interest). ReentrancyGuard + SafeERC20. |
+| 2 | NCDToken.sol contract | ✅ | Tradeable. Bought at discountedValue, redeemed at full faceValue. Lifecycle: `acceptAndIssue()` → `transferNCD()` → `redeemMaturity()`. Secondary market transfer support. |
+| 3 | Term Deposit API endpoints | ✅ | `POST /term-deposit`, `/term-deposit/:id/execute`, `/term-deposit/:id/redeem`, `GET /term-deposit/:id`, `/term-deposit/:id/balances` |
+| 4 | NCD API endpoints | ✅ | `POST /ncd`, `/ncd/:id/execute`, `/ncd/:id/transfer`, `/ncd/:id/redeem`, `GET /ncd/:id`, `/ncd/:id/balances` |
+| 5 | Term Deposit agent plugin | ✅ | `term-deposit-plugin.js` — 5 tools (create, execute, redeem, status, balances) |
+| 6 | NCD agent plugin | ✅ | `ncd-plugin.js` — 6 tools (create, execute, transfer, redeem, status, balances) |
+| 7 | RFQ plugin — multi-asset quotes | ✅ | Added `get_term_deposit_quotes` (WBC, NAB, CBA, ANZ) and `get_ncd_quotes` (BOQ, Macquarie, Suncorp, Bendigo) to existing RFQ plugin |
+| 8 | RFQ system prompt — asset recommendation | ✅ | Agent recommends best product type based on investor goals. Routes to correct create/execute tools per asset type in Stage 4. |
+| 9 | Plugin wiring (CLI + WebSocket) | ✅ | TD and NCD plugins registered in both `llm-agent.js` (CLI) and `imperium-api.js` (WebSocket chat) |
+| 10 | Test suite — Term Deposits | ✅ | `test/term-deposit/` — 2 files, 6 tests: lifecycle (issue→mature→redeem, pre-maturity revert), security (double-issue, only-issuer, double-redeem, pre-issue) |
+| 11 | Test suite — NCDs | ✅ | `test/ncd/` — 3 files, 10 tests: lifecycle (with/without trade), transfers (4 edge cases), security (double-issue, only-issuer, double-redeem, pre-issue) |
+| 12 | Hardhat config update | ✅ | `spec: "test/**/*.test.js"` — runs all test folders (annuity, term-deposit, ncd) |
+| 13 | Compile verification | ✅ | Both new contracts compile successfully alongside existing ones |
+
+**Test Results:** 16/16 new tests passing (6 TD + 10 NCD). All 10 existing annuity tests still pass. Total: 26+ contract tests.
+
+**Gate:** ✅ Three asset types fully operational — contracts, API, agent plugins, quotes, tests. Agent recommends the best product based on investor goals.
+
+---
+
 ### Day 7 — Demo Recording + Buffer
 
 **Goal:** Record final demo showcasing agent on Hedera Testnet with HOL Registry Broker integration, CLI v0.4 HCS-10 commands, and web UI RFQ flow.
@@ -348,10 +379,10 @@ The agent is registered **on-chain** (HCS-10 Guarded Registry on Hedera testnet)
 | Task | Details |
 |------|---------|
 | Final dry run | Fresh deploy → agent registration (HCS-10 `create()`) → skill discovery → full lifecycle via HCS-10 connection → CLI agent HCS-10 commands → web UI RFQ flow |
-| Record demo video | Screen recording: (1) agent registration on HOL Registry Broker, (2) skill discovery via `RegistryBrokerClient.search()`, (3) agent-to-agent lifecycle on Hedera Testnet via Connection Topics, (4) CLI agent v0.4 HCS-10 commands (discover, connect, send skill, show connections), (5) web UI conversational RFQ flow with streaming |
+| Record demo video | Screen recording: (1) agent registration on HOL Registry Broker, (2) skill discovery via `RegistryBrokerClient.search()`, (3) agent-to-agent lifecycle on Hedera Testnet via Connection Topics, (4) CLI agent v0.4 HCS-10 commands (discover, connect, send skill, show connections), (5) web UI conversational RFQ flow with multi-asset recommendation and streaming |
 | Write demo summary | 1-page doc: what was shown, contract addresses, agent account ID, inbound/outbound topic IDs, tx hashes, HOL Registry entries |
 | Commit + push | All changes committed, clean repo |
-| Prepare Q&A notes | Common questions: costs, mainnet readiness, HTS migration path, HCS-10 production considerations |
+| Prepare Q&A notes | Common questions: costs, mainnet readiness, HTS migration path, HCS-10 production considerations, multi-asset strategy |
 
 ---
 

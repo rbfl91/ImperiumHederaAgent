@@ -1,17 +1,23 @@
 # Imperium Markets — Hedera Agent
 
-An LLM-powered CLI agent for tokenized annuity lifecycle management on Hedera Network. Built with Claude (via LangChain), hedera-agent-kit, and HCS-10 agent-to-agent communication.
+An LLM-powered agent for tokenised fixed-income asset lifecycle management on Hedera Network. Supports **Annuities**, **Term Deposits**, and **NCDs** (Negotiable Certificates of Deposit). Built with Claude (via LangChain), hedera-agent-kit, and HCS-10 agent-to-agent communication.
 
-> **v0.5** — Dual-mode agent: natural language (Claude + hedera-agent-kit) or regex fallback.
+> **v0.6** — Multi-asset agent: three tokenised instruments + conversational RFQ web UI.
 
 ---
 
 ## What It Does
 
-Imperium Agent manages structured annuity products (AnnuityToken smart contracts) on Hedera, combining:
+Imperium Agent manages three types of tokenised Australian Capital Markets instruments on Hedera:
 
-- **Natural language interface** — Ask in plain English: *"create a bond with 5 coupons and face value 2 million"*
-- **22+ tools** across three domains: annuity lifecycle, Hedera-native queries, and agent-to-agent networking
+- **Annuity** — Regular coupon payments + face value at maturity. Tradeable on secondary market. Issuers: Challenger, Resolution Life, Generation Life, Allianz Retire+.
+- **Term Deposit** — Locked funds returned with interest at maturity. NOT tradeable. Issuers: Westpac, NAB, CBA, ANZ.
+- **NCD** — Bought at a discount to face value, redeemed at full face value at maturity. Tradeable. Issuers: BOQ, Macquarie, Suncorp, Bendigo.
+
+Key capabilities:
+- **Natural language interface** — Ask in plain English: *"I want a term deposit with NAB for $500,000"*
+- **33+ tools** across five domains: annuity, term deposit, NCD, Hedera-native queries, and agent-to-agent networking
+- **Smart asset recommendation** — The agent analyses investor goals and recommends the most suitable product
 - **HCS-10 (OpenConvAI)** — Discover, connect, and exchange skill requests with other agents on Hedera
 - **Hedera Testnet deployment** — Live agent registered on-chain with 7 skills
 
@@ -20,6 +26,9 @@ Imperium Agent manages structured annuity products (AnnuityToken smart contracts
 | Domain | Tools | Examples |
 |--------|-------|---------|
 | **Annuity Lifecycle** | 9 tools | Create, execute, transfer, redeem, status, balances, list, transactions, health |
+| **Term Deposit** | 5 tools | Create, execute, redeem, status, balances |
+| **NCD** | 6 tools | Create, execute, transfer, redeem, status, balances |
+| **RFQ Quotes** | 3 tools | Annuity quotes, TD quotes, NCD quotes |
 | **Hedera Queries** | 7+ tools (via hedera-agent-kit) | HBAR balance, account info, token balances, topic info, transaction details |
 | **HCS-10 Networking** | 6 tools | List agents, connect, send skill requests, manage connections, start/stop listener |
 
@@ -74,7 +83,7 @@ All 21 structured commands work in regex mode (`create`, `execute`, `transfer`, 
 
 ## Web UI — Conversational RFQ
 
-A browser-based chat interface where the Imperium Agent guides investors through an annuity Request for Quote flow.
+A browser-based chat interface where the Imperium Agent guides investors through a Request for Quote flow across all three asset types.
 
 ```bash
 # Build the frontend (React + Vite)
@@ -90,10 +99,10 @@ node api/imperium-api.js --network hedera-testnet
 
 The agent walks the user through four stages via natural conversation:
 
-1. **Introduction** — Collects age and investment amount
-2. **Investment Summary** — Fetches live quotes from Australian providers (Challenger, Resolution Life, Generation Life, Allianz Retire+), presents a comparison table with SELECT buttons
-3. **Beneficiary Info** — Gathers beneficiary details and annuity type preference
-4. **Final Review** — Summarises the deal, then executes on-chain: deploys contracts, settles, and pays coupons on Hedera Testnet (or local Hardhat)
+1. **Introduction** — Collects investment goals, age, and amount
+2. **Investment Summary** — Recommends the best product (annuity, TD, or NCD) based on goals. Fetches live quotes from Australian providers, presents a comparison table with SELECT buttons
+3. **Beneficiary Info** — Gathers beneficiary details and product-specific preferences
+4. **Final Review** — Summarises the deal, then executes on-chain: deploys contracts, settles, and runs the full lifecycle on Hedera Testnet (or local Hardhat)
 
 ### Features
 
@@ -122,20 +131,29 @@ Browser (React/Vite)  ←── WebSocket ──→  Express (port 4000)
                                               │
 User input (CLI)  ──→  cli-agent.js ──→  LangChain Agent (Claude Haiku 4.5)
                                               │
-                                    ┌─────────┼─────────┐
-                              Annuity Plugin  HCS-10    hedera-agent-kit
-                              (9 tools)       (6 tools) (7+ tools)
-                                    │
-                              ImperiumAPI → Solidity contracts (Hedera / Hardhat)
+                            ┌─────────────────┼─────────────────┐
+                      Annuity Plugin    TD Plugin    NCD Plugin
+                      (9 tools)         (5 tools)    (6 tools)
+                            │               │            │
+                      RFQ Plugin (3 quote tools)    HCS-10 (6)    hedera-agent-kit (7+)
+                            │
+                      ImperiumAPI → Solidity contracts (Hedera / Hardhat)
 ```
+
+### Smart Contracts
+
+| Contract | Description | Tradeable |
+|----------|-------------|-----------|
+| **AnnuityToken.sol** | Coupon-bearing instrument — issue, pay coupons, transfer, redeem | Yes |
+| **TermDepositToken.sol** | Fixed deposit — issue, redeem with interest at maturity | No |
+| **NCDToken.sol** | Discount instrument — issue at discount, transfer, redeem at face value | Yes |
+| **ImperiumStableCoin.sol** | ERC-20 stablecoin (eAUD) for all settlements | — |
 
 ### Key Components
 
 | Component | Description |
 |-----------|-------------|
-| **AnnuityToken.sol** | ERC-20 annuity contract — issue, coupon payments, transfer, redeem |
-| **ImperiumStableCoin.sol** | ERC-20 stablecoin (iUSD) for all payments |
-| **ImperiumAPI** | Express gateway with 10 REST endpoints for contract orchestration |
+| **ImperiumAPI** | Express gateway with 25+ REST endpoints across 3 asset types |
 | **CLI Agent** | Dual-mode interactive agent (LLM or regex) |
 | **LLM Agent** | Claude + LangChain tool-calling loop with conversation memory |
 | **HOL Registry Agent** | On-chain HCS-10 agent (account `0.0.8218785`, 7 skills) |
@@ -169,37 +187,41 @@ node agent/hol-registry.js status
 
 ```
 contracts/
-  AnnuityToken.sol              # Core annuity smart contract
-  ImperiumStableCoin.sol        # ERC-20 stablecoin (iUSD)
+  AnnuityToken.sol              # Coupon-bearing annuity (tradeable)
+  TermDepositToken.sol          # Fixed deposit with interest (non-tradeable)
+  NCDToken.sol                  # Negotiable Certificate of Deposit (tradeable, discount)
+  ImperiumStableCoin.sol        # ERC-20 stablecoin (eAUD)
 agent/
-  cli-agent.js                  # Dual-mode CLI agent (v0.5)
+  cli-agent.js                  # Dual-mode CLI agent (v0.6)
   llm-agent.js                  # LangChain + Claude agent core (session factory + singleton)
   hol-registry.js               # HCS-10 on-chain agent registration
   test-a2a.js                   # Agent-to-agent round-trip test
   plugins/
     annuity-plugin.js           # 9 annuity tools (LangChain plugin)
+    term-deposit-plugin.js      # 5 term deposit tools (LangChain plugin)
+    ncd-plugin.js               # 6 NCD tools (LangChain plugin)
+    rfq-plugin.js               # RFQ quotes (3 tools) + multi-asset system prompt
     hcs10-plugin.js             # 6 HCS-10 tools (LangChain plugin)
-    rfq-plugin.js               # RFQ quotes tool + system prompt for web UI
 api/
-  imperium-api.js               # ImperiumAPI gateway (REST + WebSocket + static files)
+  imperium-api.js               # ImperiumAPI gateway (25+ REST endpoints + WebSocket)
 web/
   src/
-    App.jsx                     # 3-column layout (stepper | chat | details)
+    App.jsx                     # 3-column layout (stepper | chat | details + wallet)
     context/RfqContext.jsx      # React state: messages, stage, quotes, streaming
     hooks/useWebSocket.js       # WebSocket connection + streaming handler
     components/
       Header.jsx                # Imperium Markets branding + nav
       Chat/                     # ChatPanel, MessageBubble, QuotesTable, InvestmentCard, SuggestionChips
-      Sidebar/                  # RfqProgress (stepper), InvestmentDetails
+      Sidebar/                  # RfqProgress, InvestmentDetails, WalletPanel
 scripts/
   deploy.js                     # Hardhat deploy script
-test/annuity/
-  01–05-*.test.js               # Contract unit tests (lifecycle, payments, transfers, security, reentrancy)
-  06-smoke.fullcycle.test.js    # Full smoke test: API + regex parser + LLM (31 tests)
-  demo-bot.js                   # Visual demo bot for presentations
+test/
+  annuity/                      # 10 annuity contract tests + smoke test + demo bot
+  term-deposit/                 # 6 term deposit tests (lifecycle, security)
+  ncd/                          # 10 NCD tests (lifecycle, transfer, security)
 docs/
   hedera-migration-blueprint.md # Migration roadmap and task tracker
-  manual-test-plan.md           # 40-step manual test plan (Parts A–G)
+  complete-set-of-tokenized-assets.md # Asset specifications
 deployments/
   hol-agent.json                # On-chain agent credentials and topic IDs
 ```
@@ -209,18 +231,20 @@ deployments/
 ## Testing
 
 ```bash
-# Contract unit tests (5 suites)
-npm run test:contracts
+# All contract tests (annuity + term deposit + NCD)
+npm test
+
+# Run by asset type
+npx hardhat test test/annuity/*.test.js
+npx hardhat test test/term-deposit/*.test.js
+npx hardhat test test/ncd/*.test.js
 
 # Full smoke test (API + agent parser + LLM)
 # Requires: Hardhat node + ImperiumAPI running
 npx hardhat test test/annuity/06-smoke.fullcycle.test.js --network localhost
-
-# All tests
-npm test
 ```
 
-**Test coverage:** 31 automated tests across contract lifecycle, API endpoints, regex intent parsing, and LLM classification. Plus a 40-step manual test plan covering all 7 parts (local lifecycle, HOL registry, HCS-10 commands, agent-to-agent, LLM natural language, Hedera-native queries, HCS-10 via NL).
+**Test coverage:** 47+ automated tests across three asset types (annuity: 10 contract + smoke, term deposit: 6, NCD: 10), API endpoints, regex intent parsing, and LLM classification. Plus a 40-step manual test plan covering all 7 parts.
 
 ---
 
