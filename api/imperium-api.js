@@ -351,7 +351,7 @@ app.post('/deal/:correlationId/transfer', async (req, res) => {
     const txs = [];
 
     // Buyer (newOwner) approves the annuity contract to pull `price`
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, String(price)), txOpts(newOwner, gasLimit(200000)));
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, String(price)), txOpts(newOwner, gasLimit(300000)));
     await waitForFinality();
     txs.push({ type: 'buyerApprove', tx: approveReceipt.transactionHash });
 
@@ -393,10 +393,10 @@ app.post('/deal/:correlationId/redeem', async (req, res) => {
       // Fund the issuer first if needed, then issuer sends to the annuity contract
       const issuerBal = await stablecoin.methods.balanceOf(deal.annuityIssuer).call();
       if (BigInt(issuerBal) < deficit) {
-        await sendWithRetry(stablecoin.methods.transfer(deal.annuityIssuer, String(deficit)), txOpts(accounts[0], gasLimit(200000)));
+        await sendWithRetry(stablecoin.methods.transfer(deal.annuityIssuer, String(deficit)), txOpts(accounts[0], gasLimit(300000)));
         await waitForFinality();
       }
-      await sendWithRetry(stablecoin.methods.transfer(deal.annuityAddress, String(deficit)), txOpts(deal.annuityIssuer, gasLimit(200000)));
+      await sendWithRetry(stablecoin.methods.transfer(deal.annuityAddress, String(deficit)), txOpts(deal.annuityIssuer, gasLimit(300000)));
       await waitForFinality();
     }
 
@@ -538,9 +538,9 @@ app.post('/term-deposit', async (req, res) => {
     const stablecoinAddress = stablecoinInstance.options.address;
 
     // Fund investor and issuer
-    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(200000)));
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(300000)));
     await waitForFinality();
-    await sendWithRetry(stablecoinInstance.methods.transfer(tdIssuer, faceValue * 2), txOpts(accounts[0], gasLimit(200000)));
+    await sendWithRetry(stablecoinInstance.methods.transfer(tdIssuer, faceValue * 2), txOpts(accounts[0], gasLimit(300000)));
     await waitForFinality();
 
     const now = Math.floor(Date.now() / 1000);
@@ -589,23 +589,41 @@ app.post('/term-deposit/:correlationId/execute', async (req, res) => {
 
     const td = new web3.eth.Contract(TDAbi, deal.contractAddress);
     const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
-    console.log(`Executing term deposit ${req.params.correlationId}`);
     const txs = [];
 
-    // Investor approves and issues
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), txOpts(deal.investor, gasLimit(200000)));
+    // Diagnostics
+    const investorBal = await stablecoin.methods.balanceOf(deal.investor).call();
+    const contractIssued = await td.methods.issued().call();
+    console.log(`[td/execute] deal=${req.params.correlationId} investor=${deal.investor} issuer=${deal.issuer}`);
+    console.log(`[td/execute] faceValue=${deal.faceValue} investorBalance=${investorBal} issued=${contractIssued}`);
+
+    // Step 1: Investor approves
+    console.log(`[td/execute] step 1: approve(${deal.contractAddress}, ${deal.faceValue})`);
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), txOpts(deal.investor, gasLimit(300000)));
     await waitForFinality();
     txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
+    console.log(`[td/execute] step 1 OK: ${approveReceipt.transactionHash}`);
 
-    const acceptReceipt = await sendWithRetry(td.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(500000)));
-    await waitForFinality();
-    txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
+    // Step 2: acceptAndIssue (with idempotency check)
+    const alreadyIssued = await td.methods.issued().call();
+    if (alreadyIssued) {
+      console.log(`[td/execute] step 2: acceptAndIssue SKIPPED — already issued on-chain`);
+      txs.push({ type: 'acceptAndIssue', tx: 'already-issued' });
+    } else {
+      console.log(`[td/execute] step 2: acceptAndIssue(${deal.investor})`);
+      const acceptReceipt = await sendWithRetry(td.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(800000)));
+      await waitForFinality();
+      txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
+      console.log(`[td/execute] step 2 OK: ${acceptReceipt.transactionHash}`);
+    }
 
     deal.status = 'executed';
     recordTxs(req.params.correlationId, 'execute', txs);
     res.json({ correlationId: req.params.correlationId, assetType: 'term-deposit', status: 'executed', txs });
   } catch (err) {
-    console.error('TD Execute error', err);
+    console.error('[td/execute] FAILED:', err.message);
+    console.error('[td/execute] Stack:', err.stack);
+    if (err.receipt) console.error('[td/execute] Receipt:', JSON.stringify(err.receipt, (_, v) => typeof v === 'bigint' ? v.toString() : v));
     res.status(500).json({ error: err.message });
   }
 });
@@ -644,7 +662,7 @@ app.post('/term-deposit/:correlationId/redeem', async (req, res) => {
 
     // Issuer approves total payout (face value + interest)
     const totalPayout = String(Number(deal.faceValue) + Number(deal.interestAmount));
-    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, totalPayout), txOpts(deal.tdIssuer, gasLimit(200000)));
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, totalPayout), txOpts(deal.tdIssuer, gasLimit(300000)));
     await waitForFinality();
     txs.push({ type: 'issuerApproveRedemption', tx: issuerApprove.transactionHash });
 
@@ -727,11 +745,11 @@ app.post('/ncd', async (req, res) => {
     const stablecoinAddress = stablecoinInstance.options.address;
 
     // Fund all parties
-    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(200000)));
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(300000)));
     await waitForFinality();
-    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), txOpts(accounts[0], gasLimit(200000)));
+    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), txOpts(accounts[0], gasLimit(300000)));
     await waitForFinality();
-    await sendWithRetry(stablecoinInstance.methods.transfer(ncdIssuer, faceValue * 2), txOpts(accounts[0], gasLimit(200000)));
+    await sendWithRetry(stablecoinInstance.methods.transfer(ncdIssuer, faceValue * 2), txOpts(accounts[0], gasLimit(300000)));
     await waitForFinality();
 
     const now = Math.floor(Date.now() / 1000);
@@ -778,23 +796,41 @@ app.post('/ncd/:correlationId/execute', async (req, res) => {
 
     const ncd = new web3.eth.Contract(NCDAbi, deal.contractAddress);
     const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
-    console.log(`Executing NCD ${req.params.correlationId}`);
     const txs = [];
 
-    // Investor approves discounted value and issues
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.discountedValue)), txOpts(deal.investor, gasLimit(200000)));
+    // Diagnostics
+    const investorBal = await stablecoin.methods.balanceOf(deal.investor).call();
+    const contractIssued = await ncd.methods.issued().call();
+    console.log(`[ncd/execute] deal=${req.params.correlationId} investor=${deal.investor} issuer=${deal.issuer}`);
+    console.log(`[ncd/execute] discountedValue=${deal.discountedValue} investorBalance=${investorBal} issued=${contractIssued}`);
+
+    // Step 1: Investor approves discounted value
+    console.log(`[ncd/execute] step 1: approve(${deal.contractAddress}, ${deal.discountedValue})`);
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.discountedValue)), txOpts(deal.investor, gasLimit(300000)));
     await waitForFinality();
     txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
+    console.log(`[ncd/execute] step 1 OK: ${approveReceipt.transactionHash}`);
 
-    const acceptReceipt = await sendWithRetry(ncd.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(500000)));
-    await waitForFinality();
-    txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
+    // Step 2: acceptAndIssue (with idempotency check)
+    const alreadyIssued = await ncd.methods.issued().call();
+    if (alreadyIssued) {
+      console.log(`[ncd/execute] step 2: acceptAndIssue SKIPPED — already issued on-chain`);
+      txs.push({ type: 'acceptAndIssue', tx: 'already-issued' });
+    } else {
+      console.log(`[ncd/execute] step 2: acceptAndIssue(${deal.investor})`);
+      const acceptReceipt = await sendWithRetry(ncd.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(800000)));
+      await waitForFinality();
+      txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
+      console.log(`[ncd/execute] step 2 OK: ${acceptReceipt.transactionHash}`);
+    }
 
     deal.status = 'executed';
     recordTxs(req.params.correlationId, 'execute', txs);
     res.json({ correlationId: req.params.correlationId, assetType: 'ncd', status: 'executed', txs });
   } catch (err) {
-    console.error('NCD Execute error', err);
+    console.error('[ncd/execute] FAILED:', err.message);
+    console.error('[ncd/execute] Stack:', err.stack);
+    if (err.receipt) console.error('[ncd/execute] Receipt:', JSON.stringify(err.receipt, (_, v) => typeof v === 'bigint' ? v.toString() : v));
     res.status(500).json({ error: err.message });
   }
 });
@@ -812,7 +848,7 @@ app.post('/ncd/:correlationId/transfer', async (req, res) => {
     console.log(`Transferring NCD ${req.params.correlationId} to ${newOwner} for ${price}`);
     const txs = [];
 
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(price)), txOpts(newOwner, gasLimit(200000)));
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(price)), txOpts(newOwner, gasLimit(300000)));
     await waitForFinality();
     txs.push({ type: 'buyerApprove', tx: approveReceipt.transactionHash });
 
@@ -863,7 +899,7 @@ app.post('/ncd/:correlationId/redeem', async (req, res) => {
     }
 
     // Issuer approves face value payout
-    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), txOpts(deal.ncdIssuer, gasLimit(200000)));
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), txOpts(deal.ncdIssuer, gasLimit(300000)));
     await waitForFinality();
     txs.push({ type: 'issuerApproveRedemption', tx: issuerApprove.transactionHash });
 
