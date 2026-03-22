@@ -1,0 +1,10 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "installCommand": "npm install --legacy-peer-deps",
+    "buildCommand": "cd web && npm install --legacy-peer-deps && npm run build"
+  },
+  "deploy": {
+    "startCommand": "node api/imperium-api.js"
+  }
+}
