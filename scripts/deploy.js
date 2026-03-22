@@ -11,9 +11,12 @@ async function main() {
   console.log(`Deploying to network: ${networkName}`);
   console.log(`Deployer account: ${issuer.address}`);
 
+  // Hedera relay needs explicit gas overrides (estimateGas fails with INSUFFICIENT_TX_FEE)
+  const deployOverrides = isHedera ? { gasLimit: 5_000_000 } : {};
+
   // Deploy ImperiumStableCoin
   const ImperiumStableCoin = await hre.ethers.getContractFactory("ImperiumStableCoin");
-  const stablecoin = await ImperiumStableCoin.deploy(); // Now eAUD/ImperiumAUD
+  const stablecoin = await ImperiumStableCoin.deploy(deployOverrides); // Now eAUD/ImperiumAUD
   await stablecoin.waitForDeployment();
   const stablecoinAddress = await stablecoin.getAddress();
   console.log("ImperiumStableCoin deployed to:", stablecoinAddress);
@@ -50,11 +53,55 @@ async function main() {
     interestRate,
     couponDates,
     couponValues,
-    stablecoinAddress
+    stablecoinAddress,
+    deployOverrides
   );
   await annuity.waitForDeployment();
   const annuityAddress = await annuity.getAddress();
   console.log("AnnuityToken deployed to:", annuityAddress);
+
+  // Deploy TermDepositToken
+  const tdInterestRate = 450; // 4.50%
+  const tdTermDays = isHedera ? 120 : 90 * 24 * 60 * 60; // seconds
+  const tdMaturityDate = startDate + tdTermDays;
+  const tdInterestAmount = faceValue * BigInt(tdInterestRate) / 10000n * BigInt(tdTermDays) / BigInt(365 * 24 * 60 * 60);
+
+  const TermDepositToken = await hre.ethers.getContractFactory("TermDepositToken");
+  const termDeposit = await TermDepositToken.deploy(
+    issuer.address,
+    startDate,
+    tdMaturityDate,
+    faceValue,
+    tdInterestRate,
+    tdInterestAmount,
+    stablecoinAddress,
+    deployOverrides
+  );
+  await termDeposit.waitForDeployment();
+  const termDepositAddress = await termDeposit.getAddress();
+  console.log("TermDepositToken deployed to:", termDepositAddress);
+
+  // Deploy NCDToken
+  const ncdInterestRate = 480; // 4.80%
+  const ncdTermDays = isHedera ? 120 : 180 * 24 * 60 * 60; // seconds
+  const ncdMaturityDate = startDate + ncdTermDays;
+  const ncdDiscount = faceValue * BigInt(ncdInterestRate) / 10000n * BigInt(ncdTermDays) / BigInt(365 * 24 * 60 * 60);
+  const ncdDiscountedValue = faceValue - ncdDiscount;
+
+  const NCDToken = await hre.ethers.getContractFactory("NCDToken");
+  const ncd = await NCDToken.deploy(
+    issuer.address,
+    startDate,
+    ncdMaturityDate,
+    faceValue,
+    ncdInterestRate,
+    ncdDiscountedValue,
+    stablecoinAddress,
+    deployOverrides
+  );
+  await ncd.waitForDeployment();
+  const ncdAddress = await ncd.getAddress();
+  console.log("NCDToken deployed to:", ncdAddress);
 
   // Save deployed addresses for the API / agent to reference
   const deploymentName = isHedera ? "hedera-testnet" : networkName;
@@ -63,6 +110,8 @@ async function main() {
     deployer: issuer.address,
     stablecoinAddress,
     annuityAddress,
+    termDepositAddress,
+    ncdAddress,
     maturityDate,
     deployedAt: new Date().toISOString(),
   });
@@ -73,6 +122,8 @@ async function main() {
     console.log(`Maturity in: 120 seconds (demo mode)`);
     console.log(`Coupon dates: +30s, +60s from now`);
     console.log(`Explorer: https://hashscan.io/testnet/contract/${annuityAddress}`);
+    console.log(`Term Deposit: https://hashscan.io/testnet/contract/${termDepositAddress}`);
+    console.log(`NCD: https://hashscan.io/testnet/contract/${ncdAddress}`);
     console.log(`Stablecoin: https://hashscan.io/testnet/contract/${stablecoinAddress}`);
   }
 }

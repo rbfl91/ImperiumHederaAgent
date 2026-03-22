@@ -16,6 +16,8 @@ module.exports = {
         : [],
       chainId: 296,
       timeout: 120000,  // Hedera finality is slower (~3-5s per tx)
+      gasPrice: 2_000_000_000_000,  // 2000 Gwei — match maxFeePerGas from relay
+      gas: 5_000_000,              // explicit gas limit for contract deployment
     }
   },
   mocha: {

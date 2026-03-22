@@ -60,13 +60,10 @@ export default function ChatPanel({ onSend }) {
         {state.isTyping && (
           <div className="message message--agent">
             <div className="message-avatar">
-              <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                <circle cx="14" cy="14" r="14" fill="#0f101d" />
-                <path d="M9 14l2 2 6-6" stroke="white" strokeWidth="2" fill="none" />
-              </svg>
+              <img src={new URL('../../assets/bot-avatar.svg', import.meta.url).href} width="28" height="28" alt="Imperium Assistant" />
             </div>
             <div className="message-content">
-              <div className="message-sender">ANNUITY ASSISTANT</div>
+              <div className="message-sender">IMPERIUM ASSISTANT</div>
               <div className="message-bubble message-bubble--agent">
                 <div className="typing-indicator">
                   <span /><span /><span />

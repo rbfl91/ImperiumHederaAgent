@@ -44,7 +44,7 @@ const NETWORKS = {
 
 /**
  * Load deployed contract addresses for a given network.
- * Returns { annuityAddress, stablecoinAddress } or null if not found.
+ * Returns { annuityAddress, termDepositAddress, ncdAddress, stablecoinAddress } or null if not found.
  */
 function loadDeployment(networkName) {
   const deployPath = path.join(__dirname, '..', 'deployments', `${networkName}.json`);

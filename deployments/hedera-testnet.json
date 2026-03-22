@@ -1,0 +1,10 @@
+{
+  "network": "hederaTestnet",
+  "deployer": "0xd166aEd05c6d6987ec00f9e49d55420b590c47b6",
+  "stablecoinAddress": "0x45C4755B6f187499Bc021B726A8E73dB322bE878",
+  "annuityAddress": "0x5D2239d1284FFa9E15c450774D1f7e8b56E4A866",
+  "termDepositAddress": "0x4F132665b6cCB325d9C3AB74599B867847fb61d7",
+  "ncdAddress": "0x3789fA3c4Aa158b0138bCBa03ACD47932f8044fD",
+  "maturityDate": 1774204769,
+  "deployedAt": "2026-03-22T18:37:52.141Z"
+}

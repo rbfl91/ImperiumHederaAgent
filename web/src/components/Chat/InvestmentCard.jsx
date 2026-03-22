@@ -11,6 +11,40 @@ function truncateAddress(addr) {
 export default function InvestmentCard({ data }) {
   if (!data) return null;
 
+  function handleDownloadReceipt() {
+    const lines = [
+      '═══════════════════════════════════════════════════',
+      '           IMPERIUM MARKETS — INVESTMENT RECEIPT',
+      '═══════════════════════════════════════════════════',
+      '',
+      `Reference:        ${data.ref || '—'}`,
+      `Provider:         ${data.provider || '—'}`,
+      `Asset Type:       ${data.type || '—'}`,
+      `Investment:       ${formatCurrency(data.amount)}`,
+      `Matched Rate:     ${data.rate || '—'} p.a.`,
+      '',
+      `Start Date:       ${data.startDate || '—'}`,
+      `First Payment:    ${data.firstPayment || '—'}`,
+      '',
+      ...(data.annuityAddress ? [`Contract:         ${data.annuityAddress}`] : []),
+      ...(data.stablecoinAddress ? [`Stablecoin:       ${data.stablecoinAddress}`] : []),
+      ...(data.txCount ? [`Transactions:     ${data.txCount} on-chain txs`] : []),
+      '',
+      '═══════════════════════════════════════════════════',
+      `Generated:        ${new Date().toISOString()}`,
+      'Network:          Hedera Testnet',
+      '═══════════════════════════════════════════════════',
+    ];
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `imperium-receipt-${data.ref || 'deal'}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="investment-card">
       <div className="investment-card-header">
@@ -28,7 +62,7 @@ export default function InvestmentCard({ data }) {
           <span className="investment-card-value">{data.startDate || '—'}</span>
         </div>
         <div className="investment-card-field">
-          <span className="investment-card-label">ANNUITY TYPE</span>
+          <span className="investment-card-label">ASSET TYPE</span>
           <span className="investment-card-value">{data.type || 'Lifetime'}</span>
         </div>
         <div className="investment-card-field">
@@ -66,8 +100,7 @@ export default function InvestmentCard({ data }) {
         )}
       </div>
       <div className="investment-card-actions">
-        <button className="btn btn--primary">Download Receipt</button>
-        <button className="btn btn--outline">My Dashboard</button>
+        <button className="btn btn--primary" onClick={handleDownloadReceipt}>Download Receipt</button>
       </div>
     </div>
   );

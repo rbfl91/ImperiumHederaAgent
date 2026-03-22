@@ -67,7 +67,7 @@ if [ "$NETWORK" = "local" ]; then
   # ── LOCAL MODE: Start Hardhat Node + Deploy ──────────────────────
 
   # 1) Start Hardhat Node
-  echo -e "${YELLOW}[1/4]${NC} Starting Hardhat node on port 8545..."
+  echo -e "${YELLOW}[1/5]${NC} Starting Hardhat node on port 8545..."
   npx hardhat node > /tmp/hardhat-node.log 2>&1 &
   HARDHAT_PID=$!
   PIDS+=($HARDHAT_PID)
@@ -87,7 +87,7 @@ if [ "$NETWORK" = "local" ]; then
   echo -e "${GREEN}   ✅ Hardhat node running (PID $HARDHAT_PID)${NC}"
 
   # 2) Compile & Deploy
-  echo -e "${YELLOW}[2/4]${NC} Compiling and deploying contracts..."
+  echo -e "${YELLOW}[2/5]${NC} Compiling and deploying contracts..."
   npx hardhat compile > /tmp/hardhat-compile.log 2>&1
   npx hardhat run scripts/deploy.js --network localhost > /tmp/hardhat-deploy.log 2>&1
   echo -e "${GREEN}   ✅ Contracts deployed (local)${NC}"
@@ -106,18 +106,23 @@ else
     exit 1
   fi
 
-  echo -e "${YELLOW}[1/4]${NC} Skipping local node (using Hedera Testnet RPC)..."
+  echo -e "${YELLOW}[1/5]${NC} Skipping local node (using Hedera Testnet RPC)..."
   echo -e "${GREEN}   ✅ Using Hashio JSON-RPC Relay${NC}"
 
   # 2) Compile & Deploy to Hedera Testnet
-  echo -e "${YELLOW}[2/4]${NC} Compiling and deploying contracts to Hedera Testnet..."
+  echo -e "${YELLOW}[2/5]${NC} Compiling and deploying contracts to Hedera Testnet..."
   npx hardhat compile > /tmp/hardhat-compile.log 2>&1
   npx hardhat run scripts/deploy.js --network hederaTestnet 2>&1 | tee /tmp/hardhat-deploy.log
   echo -e "${GREEN}   ✅ Contracts deployed to Hedera Testnet${NC}"
 fi
 
-# ── 3) Start ImperiumAPI ──────────────────────────────────────────
-echo -e "${YELLOW}[3/4]${NC} Starting API on port 4000 (network: ${NETWORK})..."
+# ── 3) Build Web Frontend ─────────────────────────────────────────
+echo -e "${YELLOW}[3/5]${NC} Building web frontend..."
+(cd web && npm run build) > /tmp/imperium-web-build.log 2>&1
+echo -e "${GREEN}   ✅ Frontend built (web/dist/)${NC}"
+
+# ── 4) Start ImperiumAPI ──────────────────────────────────────────
+echo -e "${YELLOW}[4/5]${NC} Starting API on port 4000 (network: ${NETWORK})..."
 node api/imperium-api.js --network "$NETWORK" > /tmp/imperium-api.log 2>&1 &
 API_PID=$!
 PIDS+=($API_PID)
@@ -141,7 +146,7 @@ echo ""
 echo -e "${CYAN}   Web UI:   ${NC}http://localhost:4000  (or run ${YELLOW}npm run dev:web${NC} for dev server on :5173)"
 echo -e "${CYAN}   CLI Agent:${NC} Run ${YELLOW}node agent/cli-agent.js${NC} in another terminal"
 echo ""
-echo -e "${YELLOW}[4/4]${NC} Launching CLI Agent..."
+echo -e "${YELLOW}[5/5]${NC} Launching CLI Agent..."
 echo -e "${CYAN}────────────────────────────────────────────────────────${NC}"
 echo ""
 

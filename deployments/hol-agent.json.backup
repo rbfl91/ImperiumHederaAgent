@@ -1,0 +1,30 @@
+{
+  "agentAccountId": "0.0.8196762",
+  "agentPrivateKey": "302e020100300506032b65700422042096b7d6ad1b4d1bce135459144f3ea07bc0f4aa23c364355c2860b1bba7a36bb6",
+  "operatorId": "0.0.8196678@0.0.8196762",
+  "inboundTopicId": "0.0.8196678",
+  "outboundTopicId": "0.0.8196675",
+  "profileTopicId": "0.0.8196782",
+  "pfpTopicId": null,
+  "network": "testnet",
+  "registryUrl": "https://moonscape.tech",
+  "registeredAt": "2026-03-13T03:19:57.087Z",
+  "capabilities": [
+    "DATA_INTEGRATION",
+    "TRANSACTION_ANALYTICS",
+    "COMPLIANCE_ANALYSIS",
+    "WORKFLOW_AUTOMATION",
+    "API_INTEGRATION",
+    "KNOWLEDGE_RETRIEVAL",
+    "MULTI_AGENT_COORDINATION"
+  ],
+  "skills": [
+    "annuity.issue",
+    "annuity.settle",
+    "annuity.transfer",
+    "annuity.redeem",
+    "annuity.compliance",
+    "annuity.analytics",
+    "annuity.audit"
+  ]
+}

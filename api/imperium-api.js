@@ -958,8 +958,6 @@ app.get('/wallet', async (req, res) => {
 const { WebSocketServer } = require('ws');
 const { createSession } = require('../agent/llm-agent');
 const { rfqPlugin, RFQ_SYSTEM_PROMPT } = require('../agent/plugins/rfq-plugin');
-const { termDepositPlugin } = require('../agent/plugins/term-deposit-plugin');
-const { ncdPlugin } = require('../agent/plugins/ncd-plugin');
 
 /**
  * Parse structured ~~~rfq-*~~~ blocks from agent response text.
@@ -1009,7 +1007,7 @@ wss.on('connection', (ws) => {
     apiKey,
     agentState: holAgentState,
     systemPrompt: RFQ_SYSTEM_PROMPT,
-    extraPlugins: [rfqPlugin, termDepositPlugin, ncdPlugin],
+    extraPlugins: [rfqPlugin],
   });
 
   /** Helper: process input with streaming tokens over WebSocket */
