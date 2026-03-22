@@ -1041,7 +1041,7 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'stream_end', text: plainText, structured }));
       }
     } catch (err) {
-      console.error('[WS] Process error:', err.message);
+      console.error('[WS] Process error:', err.message, err.stack);
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: 'error', text: 'Something went wrong. Please try again.' }));
       }

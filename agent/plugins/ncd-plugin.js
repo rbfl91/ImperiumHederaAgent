@@ -5,7 +5,8 @@
 
 const { z } = require('zod');
 
-const API_BASE = process.env.API_BASE || 'http://127.0.0.1:4000';
+const API_PORT = process.env.PORT || 4000;
+const API_BASE = process.env.API_BASE || `http://127.0.0.1:${API_PORT}`;
 
 async function apiPost(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
