@@ -151,6 +151,7 @@ app.post('/deal', async (req, res) => {
     const interestRate = parseInt(payload.participants.seller.wallet.tokenMetaData.interestRate);
     const faceValue = seller.bidAmount;
     const couponValue = Math.floor(faceValue / termDays);
+    console.log(`[deal/create] correlationId=${correlationId} faceValue=${faceValue} (type: ${typeof faceValue}) termDays=${termDays} interestRate=${interestRate} couponValue=${couponValue}`);
 
     let accounts = await web3.eth.getAccounts();
     // On Hedera testnet, getAccounts() returns [] — use wallet instead
@@ -167,12 +168,17 @@ app.post('/deal', async (req, res) => {
     const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send(txOpts(accounts[0], gasLimit(6_000_000)));
     await waitForFinality();
     const stablecoinAddress = stablecoinInstance.options.address;
+    const deployerBal = await stablecoinInstance.methods.balanceOf(accounts[0]).call();
+    console.log(`[deal/create] stablecoin=${stablecoinAddress} deployerBalance=${deployerBal} deployer=${accounts[0]}`);
+    console.log(`[deal/create] issuer=${annuityIssuer} investor=${investor} secondary=${secondary} (singleAccount=${annuityIssuer === investor})`);
 
     // Transfer funds from deployer to investor & secondary (mock balance)
-    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(200000)));
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(300000)));
     await waitForFinality();
-    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), txOpts(accounts[0], gasLimit(200000)));
+    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), txOpts(accounts[0], gasLimit(300000)));
     await waitForFinality();
+    const investorBalAfter = await stablecoinInstance.methods.balanceOf(investor).call();
+    console.log(`[deal/create] investor balance after funding: ${investorBalAfter}`);
 
     const now = Math.floor(Date.now() / 1000);
 
@@ -257,38 +263,61 @@ app.post('/deal/:correlationId/execute', async (req, res) => {
 
     const annuity = new web3.eth.Contract(AnnuityAbi, deal.annuityAddress);
     const stablecoin = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
-    console.log(`Executing deal ${req.params.correlationId}`);
     const txs = [];
 
-    // Approve and accept: Investor must approve transfer of faceValue to issuer
+    // ── Diagnostics ──
+    const investorBal = await stablecoin.methods.balanceOf(deal.investor).call();
+    const contractIssued = await annuity.methods.issued().call();
+    const contractExpired = await annuity.methods.expired().call();
+    const contractFaceValue = await annuity.methods.faceValue().call();
+    console.log(`[execute] deal=${req.params.correlationId} investor=${deal.investor} issuer=${deal.annuityIssuer}`);
+    console.log(`[execute] faceValue(deal)=${deal.faceValue} faceValue(contract)=${contractFaceValue}`);
+    console.log(`[execute] investorBalance=${investorBal} issued=${contractIssued} expired=${contractExpired}`);
+
+    // Step 1: Investor approves annuity contract to pull faceValue
     const faceValueStr = String(deal.faceValue);
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, faceValueStr), txOpts(deal.investor, gasLimit(200000)));
+    console.log(`[execute] step 1: approve(${deal.annuityAddress}, ${faceValueStr}) from ${deal.investor}`);
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, faceValueStr), txOpts(deal.investor, gasLimit(300000)));
     await waitForFinality();
     txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
+    console.log(`[execute] step 1 OK: ${approveReceipt.transactionHash}`);
 
-    const acceptReceipt = await sendWithRetry(annuity.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(500000)));
+    // Verify allowance was set
+    const allowance = await stablecoin.methods.allowance(deal.investor, deal.annuityAddress).call();
+    console.log(`[execute] allowance after approve: ${allowance}`);
+
+    // Step 2: acceptAndIssue — annuity contract pulls faceValue from investor to issuer
+    console.log(`[execute] step 2: acceptAndIssue(${deal.investor}) from ${deal.investor}`);
+    const acceptReceipt = await sendWithRetry(annuity.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(800000)));
     await waitForFinality();
     txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
+    console.log(`[execute] step 2 OK: ${acceptReceipt.transactionHash}`);
 
-    // Issuer approves coupons (approve annuity contract to spend coupons)
+    // Step 3: Issuer approves coupons
     const totalCoupons = deal.couponValues.reduce((a, b) => a + Number(b), 0);
     const totalCouponsStr = String(totalCoupons);
-    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, totalCouponsStr), txOpts(deal.annuityIssuer, gasLimit(200000)));
+    console.log(`[execute] step 3: issuer approve coupons total=${totalCouponsStr}`);
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, totalCouponsStr), txOpts(deal.annuityIssuer, gasLimit(300000)));
     await waitForFinality();
     txs.push({ type: 'issuerApproveCoupons', tx: issuerApprove.transactionHash });
+    console.log(`[execute] step 3 OK: ${issuerApprove.transactionHash}`);
 
-    // Pay all coupons
+    // Step 4: Pay all coupons
     for (let i = 0; i < deal.couponValues.length; i++) {
-      const payReceipt = await sendWithRetry(annuity.methods.payCoupon(i), txOpts(deal.annuityIssuer, gasLimit(200000)));
+      console.log(`[execute] step 4.${i}: payCoupon(${i}) value=${deal.couponValues[i]}`);
+      const payReceipt = await sendWithRetry(annuity.methods.payCoupon(i), txOpts(deal.annuityIssuer, gasLimit(400000)));
       await waitForFinality();
       txs.push({ type: 'payCoupon', index: i, tx: payReceipt.transactionHash });
+      console.log(`[execute] step 4.${i} OK: ${payReceipt.transactionHash}`);
     }
 
     deal.status = 'executed';
     recordTxs(req.params.correlationId, 'execute', txs);
     res.json({ correlationId: req.params.correlationId, status: 'executed', txs });
   } catch (err) {
-    console.error('Execute error', err);
+    console.error('[execute] FAILED:', err.message);
+    console.error('[execute] Stack:', err.stack);
+    if (err.receipt) console.error('[execute] Receipt:', JSON.stringify(err.receipt));
     res.status(500).json({ error: err.message, stack: err.stack });
   }
 });
