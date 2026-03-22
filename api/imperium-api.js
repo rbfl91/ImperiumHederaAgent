@@ -90,6 +90,18 @@ function gasLimit(base) {
 }
 
 /**
+ * Build tx options with gasPrice for Hedera Testnet.
+ * Hedera's JSON-RPC relay needs explicit gasPrice to avoid INSUFFICIENT_TX_FEE.
+ */
+function txOpts(from, gas) {
+  const opts = { from, gas };
+  if (!NET.usePrefundedAccounts) {
+    opts.gasPrice = '2000000000000'; // 2000 Gwei for Hedera relay
+  }
+  return opts;
+}
+
+/**
  * Optional delay after tx to wait for finality on slower networks.
  */
 function waitForFinality() {
@@ -115,7 +127,8 @@ async function sendWithRetry(txCall, opts, retries = 3) {
         err.message?.includes('invalid json response') ||
         err.message?.includes('FetchError') ||
         err.message?.includes('ECONNRESET') ||
-        err.message?.includes('rate limit');
+        err.message?.includes('rate limit') ||
+        err.message?.includes('INSUFFICIENT_TX_FEE');
       if (isTransient && attempt < retries) {
         const delay = attempt * 5000; // 5s, 10s, 15s
         console.log(`  ⚠️  Tx attempt ${attempt}/${retries} failed (${err.message?.slice(0, 60)}), retrying in ${delay / 1000}s...`);
@@ -151,14 +164,14 @@ app.post('/deal', async (req, res) => {
 
     // Deploy stablecoin using web3
     const StablecoinContract = new web3.eth.Contract(StablecoinAbi);
-    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send({ from: accounts[0], gas: gasLimit(6_000_000) });
+    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send(txOpts(accounts[0], gasLimit(6_000_000)));
     await waitForFinality();
     const stablecoinAddress = stablecoinInstance.options.address;
 
     // Transfer funds from deployer to investor & secondary (mock balance)
-    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), { from: accounts[0], gas: gasLimit(200000) });
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(200000)));
     await waitForFinality();
-    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), { from: accounts[0], gas: gasLimit(200000) });
+    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), txOpts(accounts[0], gasLimit(200000)));
     await waitForFinality();
 
     const now = Math.floor(Date.now() / 1000);
@@ -186,7 +199,7 @@ app.post('/deal', async (req, res) => {
     const annuityInstance = await AnnuityContract.deploy({
       data: AnnuityBytecode,
       arguments: [annuityIssuer, now, maturityDate, faceValue, interestRate, couponDates, couponValues, stablecoinAddress]
-    }).send({ from: annuityIssuer, gas: gasLimit(8_000_000) });
+    }).send(txOpts(annuityIssuer, gasLimit(8_000_000)));
     await waitForFinality();
     const annuityAddress = annuityInstance.options.address;
 
@@ -249,24 +262,24 @@ app.post('/deal/:correlationId/execute', async (req, res) => {
 
     // Approve and accept: Investor must approve transfer of faceValue to issuer
     const faceValueStr = String(deal.faceValue);
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, faceValueStr), { from: deal.investor, gas: gasLimit(200000) });
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, faceValueStr), txOpts(deal.investor, gasLimit(200000)));
     await waitForFinality();
     txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
 
-    const acceptReceipt = await sendWithRetry(annuity.methods.acceptAndIssue(deal.investor), { from: deal.investor, gas: gasLimit(500000) });
+    const acceptReceipt = await sendWithRetry(annuity.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(500000)));
     await waitForFinality();
     txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
 
     // Issuer approves coupons (approve annuity contract to spend coupons)
     const totalCoupons = deal.couponValues.reduce((a, b) => a + Number(b), 0);
     const totalCouponsStr = String(totalCoupons);
-    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, totalCouponsStr), { from: deal.annuityIssuer, gas: gasLimit(200000) });
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, totalCouponsStr), txOpts(deal.annuityIssuer, gasLimit(200000)));
     await waitForFinality();
     txs.push({ type: 'issuerApproveCoupons', tx: issuerApprove.transactionHash });
 
     // Pay all coupons
     for (let i = 0; i < deal.couponValues.length; i++) {
-      const payReceipt = await sendWithRetry(annuity.methods.payCoupon(i), { from: deal.annuityIssuer, gas: gasLimit(200000) });
+      const payReceipt = await sendWithRetry(annuity.methods.payCoupon(i), txOpts(deal.annuityIssuer, gasLimit(200000)));
       await waitForFinality();
       txs.push({ type: 'payCoupon', index: i, tx: payReceipt.transactionHash });
     }
@@ -295,13 +308,13 @@ app.post('/deal/:correlationId/transfer', async (req, res) => {
     const txs = [];
 
     // Buyer (newOwner) approves the annuity contract to pull `price`
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, String(price)), { from: newOwner, gas: gasLimit(200000) });
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.annuityAddress, String(price)), txOpts(newOwner, gasLimit(200000)));
     await waitForFinality();
     txs.push({ type: 'buyerApprove', tx: approveReceipt.transactionHash });
 
     // Current owner initiates transfer
     const currentOwner = await annuity.methods.currentOwner().call();
-    const transferReceipt = await sendWithRetry(annuity.methods.transferAnnuity(newOwner, String(price)), { from: currentOwner, gas: gasLimit(500000) });
+    const transferReceipt = await sendWithRetry(annuity.methods.transferAnnuity(newOwner, String(price)), txOpts(currentOwner, gasLimit(500000)));
     await waitForFinality();
     txs.push({ type: 'transferAnnuity', tx: transferReceipt.transactionHash });
 
@@ -337,10 +350,10 @@ app.post('/deal/:correlationId/redeem', async (req, res) => {
       // Fund the issuer first if needed, then issuer sends to the annuity contract
       const issuerBal = await stablecoin.methods.balanceOf(deal.annuityIssuer).call();
       if (BigInt(issuerBal) < deficit) {
-        await sendWithRetry(stablecoin.methods.transfer(deal.annuityIssuer, String(deficit)), { from: accounts[0], gas: gasLimit(200000) });
+        await sendWithRetry(stablecoin.methods.transfer(deal.annuityIssuer, String(deficit)), txOpts(accounts[0], gasLimit(200000)));
         await waitForFinality();
       }
-      await sendWithRetry(stablecoin.methods.transfer(deal.annuityAddress, String(deficit)), { from: deal.annuityIssuer, gas: gasLimit(200000) });
+      await sendWithRetry(stablecoin.methods.transfer(deal.annuityAddress, String(deficit)), txOpts(deal.annuityIssuer, gasLimit(200000)));
       await waitForFinality();
     }
 
@@ -378,7 +391,7 @@ app.post('/deal/:correlationId/redeem', async (req, res) => {
       }
     }
 
-    const redeemReceipt = await sendWithRetry(annuity.methods.redeemMaturity(), { from: deal.annuityIssuer, gas: gasLimit(500000) });
+    const redeemReceipt = await sendWithRetry(annuity.methods.redeemMaturity(), txOpts(deal.annuityIssuer, gasLimit(500000)));
     await waitForFinality();
     txs.push({ type: 'redeemMaturity', tx: redeemReceipt.transactionHash });
 
@@ -477,14 +490,14 @@ app.post('/term-deposit', async (req, res) => {
 
     // Deploy stablecoin
     const StablecoinContract = new web3.eth.Contract(StablecoinAbi);
-    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send({ from: accounts[0], gas: gasLimit(6_000_000) });
+    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send(txOpts(accounts[0], gasLimit(6_000_000)));
     await waitForFinality();
     const stablecoinAddress = stablecoinInstance.options.address;
 
     // Fund investor and issuer
-    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), { from: accounts[0], gas: gasLimit(200000) });
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(200000)));
     await waitForFinality();
-    await sendWithRetry(stablecoinInstance.methods.transfer(tdIssuer, faceValue * 2), { from: accounts[0], gas: gasLimit(200000) });
+    await sendWithRetry(stablecoinInstance.methods.transfer(tdIssuer, faceValue * 2), txOpts(accounts[0], gasLimit(200000)));
     await waitForFinality();
 
     const now = Math.floor(Date.now() / 1000);
@@ -499,7 +512,7 @@ app.post('/term-deposit', async (req, res) => {
     const tdInstance = await TDContract.deploy({
       data: TDBytecode,
       arguments: [tdIssuer, now, maturityDate, faceValue, interestRate, interestAmount, stablecoinAddress]
-    }).send({ from: tdIssuer, gas: gasLimit(8_000_000) });
+    }).send(txOpts(tdIssuer, gasLimit(8_000_000)));
     await waitForFinality();
     const tdAddress = tdInstance.options.address;
 
@@ -537,11 +550,11 @@ app.post('/term-deposit/:correlationId/execute', async (req, res) => {
     const txs = [];
 
     // Investor approves and issues
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), { from: deal.investor, gas: gasLimit(200000) });
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), txOpts(deal.investor, gasLimit(200000)));
     await waitForFinality();
     txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
 
-    const acceptReceipt = await sendWithRetry(td.methods.acceptAndIssue(deal.investor), { from: deal.investor, gas: gasLimit(500000) });
+    const acceptReceipt = await sendWithRetry(td.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(500000)));
     await waitForFinality();
     txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
 
@@ -588,11 +601,11 @@ app.post('/term-deposit/:correlationId/redeem', async (req, res) => {
 
     // Issuer approves total payout (face value + interest)
     const totalPayout = String(Number(deal.faceValue) + Number(deal.interestAmount));
-    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, totalPayout), { from: deal.tdIssuer, gas: gasLimit(200000) });
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, totalPayout), txOpts(deal.tdIssuer, gasLimit(200000)));
     await waitForFinality();
     txs.push({ type: 'issuerApproveRedemption', tx: issuerApprove.transactionHash });
 
-    const redeemReceipt = await sendWithRetry(td.methods.redeemMaturity(), { from: deal.tdIssuer, gas: gasLimit(500000) });
+    const redeemReceipt = await sendWithRetry(td.methods.redeemMaturity(), txOpts(deal.tdIssuer, gasLimit(500000)));
     await waitForFinality();
     txs.push({ type: 'redeemMaturity', tx: redeemReceipt.transactionHash });
 
@@ -666,16 +679,16 @@ app.post('/ncd', async (req, res) => {
 
     // Deploy stablecoin
     const StablecoinContract = new web3.eth.Contract(StablecoinAbi);
-    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send({ from: accounts[0], gas: gasLimit(6_000_000) });
+    const stablecoinInstance = await StablecoinContract.deploy({ data: StablecoinBytecode }).send(txOpts(accounts[0], gasLimit(6_000_000)));
     await waitForFinality();
     const stablecoinAddress = stablecoinInstance.options.address;
 
     // Fund all parties
-    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), { from: accounts[0], gas: gasLimit(200000) });
+    await sendWithRetry(stablecoinInstance.methods.transfer(investor, faceValue), txOpts(accounts[0], gasLimit(200000)));
     await waitForFinality();
-    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), { from: accounts[0], gas: gasLimit(200000) });
+    await sendWithRetry(stablecoinInstance.methods.transfer(secondary, faceValue), txOpts(accounts[0], gasLimit(200000)));
     await waitForFinality();
-    await sendWithRetry(stablecoinInstance.methods.transfer(ncdIssuer, faceValue * 2), { from: accounts[0], gas: gasLimit(200000) });
+    await sendWithRetry(stablecoinInstance.methods.transfer(ncdIssuer, faceValue * 2), txOpts(accounts[0], gasLimit(200000)));
     await waitForFinality();
 
     const now = Math.floor(Date.now() / 1000);
@@ -687,7 +700,7 @@ app.post('/ncd', async (req, res) => {
     const ncdInstance = await NCDContract.deploy({
       data: NCDBytecode,
       arguments: [ncdIssuer, now, maturityDate, faceValue, interestRate, discountedValue, stablecoinAddress]
-    }).send({ from: ncdIssuer, gas: gasLimit(8_000_000) });
+    }).send(txOpts(ncdIssuer, gasLimit(8_000_000)));
     await waitForFinality();
     const ncdAddress = ncdInstance.options.address;
 
@@ -726,11 +739,11 @@ app.post('/ncd/:correlationId/execute', async (req, res) => {
     const txs = [];
 
     // Investor approves discounted value and issues
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.discountedValue)), { from: deal.investor, gas: gasLimit(200000) });
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.discountedValue)), txOpts(deal.investor, gasLimit(200000)));
     await waitForFinality();
     txs.push({ type: 'investorApprove', tx: approveReceipt.transactionHash });
 
-    const acceptReceipt = await sendWithRetry(ncd.methods.acceptAndIssue(deal.investor), { from: deal.investor, gas: gasLimit(500000) });
+    const acceptReceipt = await sendWithRetry(ncd.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(500000)));
     await waitForFinality();
     txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
 
@@ -756,12 +769,12 @@ app.post('/ncd/:correlationId/transfer', async (req, res) => {
     console.log(`Transferring NCD ${req.params.correlationId} to ${newOwner} for ${price}`);
     const txs = [];
 
-    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(price)), { from: newOwner, gas: gasLimit(200000) });
+    const approveReceipt = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(price)), txOpts(newOwner, gasLimit(200000)));
     await waitForFinality();
     txs.push({ type: 'buyerApprove', tx: approveReceipt.transactionHash });
 
     const currentOwner = await ncd.methods.currentOwner().call();
-    const transferReceipt = await sendWithRetry(ncd.methods.transferNCD(newOwner, String(price)), { from: currentOwner, gas: gasLimit(500000) });
+    const transferReceipt = await sendWithRetry(ncd.methods.transferNCD(newOwner, String(price)), txOpts(currentOwner, gasLimit(500000)));
     await waitForFinality();
     txs.push({ type: 'transferNCD', tx: transferReceipt.transactionHash });
 
@@ -807,11 +820,11 @@ app.post('/ncd/:correlationId/redeem', async (req, res) => {
     }
 
     // Issuer approves face value payout
-    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), { from: deal.ncdIssuer, gas: gasLimit(200000) });
+    const issuerApprove = await sendWithRetry(stablecoin.methods.approve(deal.contractAddress, String(deal.faceValue)), txOpts(deal.ncdIssuer, gasLimit(200000)));
     await waitForFinality();
     txs.push({ type: 'issuerApproveRedemption', tx: issuerApprove.transactionHash });
 
-    const redeemReceipt = await sendWithRetry(ncd.methods.redeemMaturity(), { from: deal.ncdIssuer, gas: gasLimit(500000) });
+    const redeemReceipt = await sendWithRetry(ncd.methods.redeemMaturity(), txOpts(deal.ncdIssuer, gasLimit(500000)));
     await waitForFinality();
     txs.push({ type: 'redeemMaturity', tx: redeemReceipt.transactionHash });
 
