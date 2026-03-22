@@ -287,11 +287,18 @@ app.post('/deal/:correlationId/execute', async (req, res) => {
     console.log(`[execute] allowance after approve: ${allowance}`);
 
     // Step 2: acceptAndIssue — annuity contract pulls faceValue from investor to issuer
-    console.log(`[execute] step 2: acceptAndIssue(${deal.investor}) from ${deal.investor}`);
-    const acceptReceipt = await sendWithRetry(annuity.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(800000)));
-    await waitForFinality();
-    txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
-    console.log(`[execute] step 2 OK: ${acceptReceipt.transactionHash}`);
+    // Idempotency: if already issued (phantom-success on flaky RPC), skip
+    const alreadyIssued = await annuity.methods.issued().call();
+    if (alreadyIssued) {
+      console.log(`[execute] step 2: acceptAndIssue SKIPPED — already issued on-chain`);
+      txs.push({ type: 'acceptAndIssue', tx: 'already-issued' });
+    } else {
+      console.log(`[execute] step 2: acceptAndIssue(${deal.investor}) from ${deal.investor}`);
+      const acceptReceipt = await sendWithRetry(annuity.methods.acceptAndIssue(deal.investor), txOpts(deal.investor, gasLimit(800000)));
+      await waitForFinality();
+      txs.push({ type: 'acceptAndIssue', tx: acceptReceipt.transactionHash });
+      console.log(`[execute] step 2 OK: ${acceptReceipt.transactionHash}`);
+    }
 
     // Step 3: Issuer approves coupons
     const totalCoupons = deal.couponValues.reduce((a, b) => a + Number(b), 0);
@@ -302,8 +309,15 @@ app.post('/deal/:correlationId/execute', async (req, res) => {
     txs.push({ type: 'issuerApproveCoupons', tx: issuerApprove.transactionHash });
     console.log(`[execute] step 3 OK: ${issuerApprove.transactionHash}`);
 
-    // Step 4: Pay all coupons
+    // Step 4: Pay all coupons (with idempotency check for Hashio flaky responses)
     for (let i = 0; i < deal.couponValues.length; i++) {
+      // Check if coupon was already paid (handles retry-after-phantom-success on flaky RPC)
+      const alreadyPaid = await annuity.methods.couponPaid(i).call();
+      if (alreadyPaid) {
+        console.log(`[execute] step 4.${i}: payCoupon(${i}) SKIPPED — already paid on-chain`);
+        txs.push({ type: 'payCoupon', index: i, tx: 'already-paid' });
+        continue;
+      }
       console.log(`[execute] step 4.${i}: payCoupon(${i}) value=${deal.couponValues[i]}`);
       const payReceipt = await sendWithRetry(annuity.methods.payCoupon(i), txOpts(deal.annuityIssuer, gasLimit(400000)));
       await waitForFinality();
@@ -317,7 +331,7 @@ app.post('/deal/:correlationId/execute', async (req, res) => {
   } catch (err) {
     console.error('[execute] FAILED:', err.message);
     console.error('[execute] Stack:', err.stack);
-    if (err.receipt) console.error('[execute] Receipt:', JSON.stringify(err.receipt));
+    if (err.receipt) console.error('[execute] Receipt:', JSON.stringify(err.receipt, (_, v) => typeof v === 'bigint' ? v.toString() : v));
     res.status(500).json({ error: err.message, stack: err.stack });
   }
 });
