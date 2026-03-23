@@ -978,50 +978,78 @@ app.get('/wallet', async (req, res) => {
     const nativeBalance = web3.utils.fromWei(nativeWei, 'ether');
     const nativeSymbol = isHedera ? 'HBAR' : 'ETH';
 
-    // Stablecoin balances across all deployed deals
-    const stablecoins = new Map(); // address → { symbol, name, balance }
-    const assets = []; // issued annuity contracts
+    // Stablecoin balances across all deployed deals (aggregate by symbol)
+    const stablecoinsBySymbol = new Map(); // symbol → { symbol, name, balance (BigInt), addresses[] }
+    const assets = []; // all asset contracts (annuity, TD, NCD)
 
     for (const [correlationId, deal] of Object.entries(deals)) {
-      // Collect stablecoin balance (deduplicate by address)
-      if (deal.stablecoinAddress && !stablecoins.has(deal.stablecoinAddress)) {
+      // Collect stablecoin balance (aggregate by symbol to avoid duplicate eAUD rows)
+      if (deal.stablecoinAddress) {
         try {
           const sc = new web3.eth.Contract(StablecoinAbi, deal.stablecoinAddress);
-          const bal = await sc.methods.balanceOf(address).call();
-          const symbol = await sc.methods.symbol().call().catch(() => 'iUSD');
+          const bal = BigInt(await sc.methods.balanceOf(address).call());
+          const symbol = await sc.methods.symbol().call().catch(() => 'eAUD');
           const name = await sc.methods.name().call().catch(() => 'ImperiumStableCoin');
-          stablecoins.set(deal.stablecoinAddress, {
-            address: deal.stablecoinAddress,
-            symbol,
-            name,
-            balance: bal.toString(),
-          });
+          if (stablecoinsBySymbol.has(symbol)) {
+            const existing = stablecoinsBySymbol.get(symbol);
+            existing.balance += bal;
+            existing.addresses.push(deal.stablecoinAddress);
+          } else {
+            stablecoinsBySymbol.set(symbol, { symbol, name, balance: bal, addresses: [deal.stablecoinAddress] });
+          }
         } catch { /* skip inaccessible contracts */ }
       }
 
-      // Collect annuity asset info
-      if (deal.annuityAddress) {
+      // Collect asset info — annuity, term deposit, or NCD
+      const contractAddr = deal.annuityAddress || deal.contractAddress;
+      const assetType = deal.assetType || 'annuity';
+      if (contractAddr) {
         try {
-          const ann = new web3.eth.Contract(AnnuityAbi, deal.annuityAddress);
-          const currentOwner = await ann.methods.currentOwner().call();
-          const isIssued = await ann.methods.issued().call();
-          const isExpired = await ann.methods.expired().call();
+          const AbiMap = { 'annuity': AnnuityAbi, 'term-deposit': TDAbi, 'ncd': NCDAbi };
+          const abi = AbiMap[assetType] || AnnuityAbi;
+          const contract = new web3.eth.Contract(abi, contractAddr);
+          const isIssued = await contract.methods.issued().call();
+          const isExpired = await contract.methods.expired().call();
 
-          assets.push({
+          const assetInfo = {
             correlationId,
-            address: deal.annuityAddress,
+            assetType,
+            address: contractAddr,
             faceValue: deal.faceValue?.toString(),
             interestRate: deal.interestRate,
             status: deal.status,
-            currentOwner,
             issued: isIssued === true || isIssued === 'true',
             expired: isExpired === true || isExpired === 'true',
-            coupons: deal.couponValues?.length || 0,
-            explorerUrl: NET.explorer ? `${NET.explorer}/contract/${deal.annuityAddress}` : undefined,
-          });
+            explorerUrl: NET.explorer ? `${NET.explorer}/contract/${contractAddr}` : undefined,
+          };
+
+          // Annuity-specific: coupon count
+          if (assetType === 'annuity') {
+            assetInfo.coupons = deal.couponValues?.length || 0;
+          }
+          // TD-specific: term and interest amount
+          if (assetType === 'term-deposit') {
+            assetInfo.termDays = deal.termDays;
+            assetInfo.interestAmount = deal.interestAmount;
+          }
+          // NCD-specific: term and discounted value
+          if (assetType === 'ncd') {
+            assetInfo.termDays = deal.termDays;
+            assetInfo.discountedValue = deal.discountedValue;
+          }
+
+          assets.push(assetInfo);
         } catch { /* skip inaccessible contracts */ }
       }
     }
+
+    // Convert aggregated stablecoin BigInts to strings
+    const stablecoins = Array.from(stablecoinsBySymbol.values()).map(sc => ({
+      symbol: sc.symbol,
+      name: sc.name,
+      address: sc.addresses[0],
+      balance: sc.balance.toString(),
+    }));
 
     const walletData = {
       address,
@@ -1032,7 +1060,7 @@ app.get('/wallet', async (req, res) => {
         symbol: nativeSymbol,
         balance: nativeBalance,
       },
-      stablecoins: Array.from(stablecoins.values()),
+      stablecoins,
       assets,
     };
 

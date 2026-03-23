@@ -117,9 +117,10 @@ export default function WalletPanel() {
       {/* Issued Assets */}
       {wallet.assets.length > 0 && (
         <div className="wallet-section">
-          <h4 className="wallet-section-title">ANNUITY TOKENS</h4>
+          <h4 className="wallet-section-title">ASSET TOKENS</h4>
           {wallet.assets.map((asset) => {
             const badge = statusBadge(asset);
+            const typeLabel = { 'annuity': 'Annuity', 'term-deposit': 'Term Deposit', 'ncd': 'NCD' }[asset.assetType] || 'Annuity';
             return (
               <div key={asset.address} className="wallet-asset-card">
                 <div className="wallet-asset-header">
@@ -128,6 +129,10 @@ export default function WalletPanel() {
                 </div>
                 <div className="wallet-asset-details">
                   <div className="wallet-asset-row">
+                    <span>Type</span>
+                    <span className="wallet-asset-value">{typeLabel}</span>
+                  </div>
+                  <div className="wallet-asset-row">
                     <span>Face Value</span>
                     <span className="wallet-asset-value">{formatFaceValue(asset.faceValue)}</span>
                   </div>
@@ -135,10 +140,18 @@ export default function WalletPanel() {
                     <span>Rate</span>
                     <span className="wallet-asset-value">{asset.interestRate ? (asset.interestRate / 100).toFixed(2) + '% p.a.' : '—'}</span>
                   </div>
-                  <div className="wallet-asset-row">
-                    <span>Coupons</span>
-                    <span className="wallet-asset-value">{asset.coupons}</span>
-                  </div>
+                  {asset.coupons != null && (
+                    <div className="wallet-asset-row">
+                      <span>Coupons</span>
+                      <span className="wallet-asset-value">{asset.coupons}</span>
+                    </div>
+                  )}
+                  {asset.termDays != null && (
+                    <div className="wallet-asset-row">
+                      <span>Term</span>
+                      <span className="wallet-asset-value">{asset.termDays} days</span>
+                    </div>
+                  )}
                   <div className="wallet-asset-row">
                     <span>Contract</span>
                     <span className="wallet-asset-value">
