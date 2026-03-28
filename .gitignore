@@ -4,3 +4,5 @@ cache/
 web/dist/
 .DS_Store
 docs/hedera-migration-blueprint.md
+test-results/
+playwright-report/
